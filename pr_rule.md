@@ -242,6 +242,8 @@ chore/<short-topic>
 - scope 具体。
 - subject 简洁、有信息量。
 - 不使用 `update code`、`fix issue`、`small changes` 这类空泛标题。
+- **禁止在 commit 信息中添加 claude、claude code 相关内容作为作者或致谢。**
+- **PR 描述中不得包含任何与 claude / claude code 相关的内容。**
 
 ### PR 标题
 
