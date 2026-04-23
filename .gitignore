@@ -1,0 +1,12 @@
+.claude_agent_logs/
+candidates/*
+100/
+200/
+2026-03-01
+docs/
+.playwright-mcp/
+package-lock.json
+package.json
+node_modules/
+records/*
+tests/*
