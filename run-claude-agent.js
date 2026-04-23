@@ -21,7 +21,7 @@ const DEFAULTS = {
   claudeCommand: process.platform === "win32" ? "claude.cmd" : "claude",
   effort: "max",
   prompt:
-    '请先阅读"D:\\Desktop\\pr\\event_state.json"和"D:\\Desktop\\pr\\event_task.json"，了解当前 PR 状态和未完成任务。先处理 review 相关和事件相关任务，再开始检查 open PR 或寻找新的 PR 项目。请同时维护 D:\\Desktop\\pr 的 git，并遵守同目录下的 AGENT.md 与 pr_rule.md。',
+    '请用json解析工具理解"D:\\Desktop\\pr\\event_state.json"和"D:\\Desktop\\pr\\event_task.json"，了解当前 PR 状态和未完成任务，逐步一个一个解决D:\\Desktop\\pr\\event_task.json的task，再开始寻找新的 PR 项目。请同时维护 D:\\Desktop\\pr 的 git（你不可以创建该项目的分支，但是可以在candidates中管理具体项目的git），并遵守同目录下的 AGENT.md 与 pr_rule.md。',
   logDirName: ".claude_agent_logs",
   showThinking: false,
   showRawEvents: false,
