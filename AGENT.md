@@ -3,7 +3,6 @@
 > 适用对象：在 `D:\Desktop\pr` 中运行的 Codex / Claude / 代码代理
 > 主职责：寻找高质量开源 PR 机会，完成从筛选、分析、修改、提交到 Review 跟进的闭环
 > 质量细则：同时遵守 [`pr_rule.md`](pr_rule.md)
-
 ---
 
 ## 1. 文档分工

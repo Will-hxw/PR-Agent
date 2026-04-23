@@ -2337,7 +2337,7 @@ async function main() {
   const reviewCheckTimer = config.enableReviewMonitor
     ? setInterval(() => {
       scanPendingReviews(true);
-    }, Math.min(config.reviewCheckIntervalSeconds, 300) * 1000)
+    }, Math.max(config.reviewCheckIntervalSeconds, 300) * 1000)
     : null;
 
   pendingReviewPRs = scanPendingReviews(true);
