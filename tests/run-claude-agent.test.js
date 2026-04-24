@@ -148,7 +148,39 @@ test("state-backed trigger helper tracks active PR states", () => {
     statusCheckState: "SUCCESS",
     mergeable: "MERGEABLE",
     unresolvedReviewThreadCount: 0,
-  })), true);
+  })), false);
+});
+
+test("startup and polling use the same JSON generation path", async () => {
+  const listener = createListener();
+  const calls = [];
+  listener.generateEventJson = async () => {
+    calls.push("generate");
+  };
+  listener._dispatchRunnableTasks = async () => {
+    calls.push("dispatch");
+  };
+
+  await listener.bootstrapRefresh();
+  assert.deepStrictEqual(calls, ["generate"]);
+
+  calls.length = 0;
+  await listener._runPollCycle();
+  assert.deepStrictEqual(calls, ["generate", "dispatch"]);
+});
+
+test("ready to merge is notify-only and does not create a task", async () => {
+  const listener = createListener();
+  await listener._scanSnapshot(makeSnapshot({
+    prKey: "demo/repo#8",
+    reviewDecision: "APPROVED",
+    statusCheckState: "SUCCESS",
+    mergeable: "MERGEABLE",
+    unresolvedReviewThreadCount: 0,
+  }));
+
+  assert.equal(listener.taskManager.events.length, 0);
+  assert.equal(listener.actionLogger.lines.some((line) => line.includes("type=READY_TO_MERGE")), true);
 });
 
 test("mixed comment batch is split into maintainer bot and user tasks", async () => {
