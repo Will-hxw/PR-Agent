@@ -4995,14 +4995,14 @@
             }
           }
         },
-        "statusCheckState": null,
+        "statusCheckState": "FAILED",
         "reviewDecision": null,
-        "mergeStateStatus": null,
-        "mergeable": null,
-        "isDraft": null,
+        "mergeStateStatus": "UNSTABLE",
+        "mergeable": "MERGEABLE",
+        "isDraft": false,
         "unresolvedReviewThreadCount": 0,
-        "headSha": null,
-        "updatedAt": null
+        "headSha": "5d912dab3222239547f0499e1f0bec069b5e0d97",
+        "updatedAt": "2026-04-24T13:20:52Z"
       },
       "observed": {
         "commentBaselines": {
@@ -5066,7 +5066,7 @@
         "unresolvedReviewThreadCount": 0,
         "headSha": "5d912dab3222239547f0499e1f0bec069b5e0d97",
         "updatedAt": "2026-04-24T14:10:00.000Z",
-        "ciFailureReason": "Label action failures (infrastructure), not code quality"
+        "ciFailureReason": "Label action failures (infrastructure), not code quality. Both label jobs failing on conventional commit prefix step."
       },
       "prKey": "mongodb-js/mongodb-mcp-server#1097",
       "updatedAt": "2026-04-24T14:10:00.000Z"

@@ -1,56 +1,6 @@
 {
   "events": [
     {
-      "id": "0268a2a0-ec10-421c-af48-33d24f6ca9b5",
-      "prKey": "mongodb-js/mongodb-mcp-server#1097",
-      "type": "CI_FAILURE",
-      "severity": "HEAVY",
-      "createdAt": "2026-04-24T13:50:17.529Z",
-      "status": "running",
-      "attemptCount": 2,
-      "lastAttemptAt": "2026-04-24T14:09:55.401Z",
-      "nextRetryAt": null,
-      "lastError": null,
-      "claimedAt": "2026-04-24T14:09:55.401Z",
-      "runningPid": 31660,
-      "boundary": {
-        "issueCommentCursor": {
-          "count": 1,
-          "lastId": "4313504184",
-          "lastCreatedAt": "2026-04-24T13:20:52Z"
-        },
-        "reviewCommentCursor": {
-          "count": 0,
-          "lastId": null,
-          "lastCreatedAt": null
-        },
-        "reviewCursor": {
-          "count": 0,
-          "lastId": null,
-          "lastCreatedAt": null
-        },
-        "snapshotUpdatedAt": "2026-04-24T13:20:52Z"
-      },
-      "details": {
-        "prUrl": "https://github.com/mongodb-js/mongodb-mcp-server/pull/1097",
-        "snapshotSummary": "PR URL: https://github.com/mongodb-js/mongodb-mcp-server/pull/1097\nHead SHA: 5d912dab3222239547f0499e1f0bec069b5e0d97\nCI: FAILED\nReview decision: NONE\nMerge state: UNSTABLE\nMergeable: MERGEABLE\nDraft: no\nUnresolved review threads: 0\nIssue comments: 1\nReview comments: 0\nReviews: 0",
-        "snapshotUpdatedAt": "2026-04-24T13:20:52Z",
-        "headSha": "5d912dab3222239547f0499e1f0bec069b5e0d97",
-        "failingChecks": [
-          {
-            "label": "label",
-            "status": "COMPLETED",
-            "conclusion": "FAILURE"
-          },
-          {
-            "label": "label",
-            "status": "COMPLETED",
-            "conclusion": "FAILURE"
-          }
-        ]
-      }
-    },
-    {
       "id": "fd2c2398-19ea-4b91-8bac-b756b1f66fae",
       "prKey": "mongodb-js/mongodb-mcp-server#1097",
       "type": "MAINTAINER_COMMENT",
