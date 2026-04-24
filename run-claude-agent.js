@@ -11,6 +11,7 @@ const { randomUUID } = require("node:crypto");
 
 const STATE_FILE = path.join(__dirname, "event_state.json");
 const TASK_FILE = path.join(__dirname, "event_task.json");
+const CONTRIBUTOR_LOGIN = "Will-hxw";
 
 const DEFAULTS = {
   cwd: "D:\\Desktop\\pr",
@@ -25,8 +26,6 @@ const DEFAULTS = {
   logDirName: ".claude_agent_logs",
   showThinking: false,
   showRawEvents: false,
-  enableReviewMonitor: false,
-  reviewCheckIntervalSeconds: 14400,
   enableEventListener: false,
   eventPollIntervalMs: 3600000,
   eventNotificationEnabled: true,
@@ -88,6 +87,35 @@ const SEVERITY_ORDER = {
   INFO: 2,
 };
 
+function parseOwnerRepoFromRepositoryUrl(repositoryUrl) {
+  const prefix = "https://api.github.com/repos/";
+  const value = String(repositoryUrl || "");
+  return value.startsWith(prefix) ? value.slice(prefix.length) : "";
+}
+
+function isOwnRepository(ownerRepo) {
+  const owner = String(ownerRepo || "").split("/")[0];
+  return owner.toLowerCase() === CONTRIBUTOR_LOGIN.toLowerCase();
+}
+
+function parseOwnerRepoFromPrKey(prKey) {
+  const match = String(prKey || "").match(/^([^#]+)#\d+$/);
+  return match ? match[1] : "";
+}
+
+function isOwnRepositoryPrKey(prKey) {
+  const ownerRepo = parseOwnerRepoFromPrKey(prKey);
+  return Boolean(ownerRepo) && isOwnRepository(ownerRepo);
+}
+
+function shouldTrackOpenPrSearchItem(item) {
+  if (!item || !item.repository_url || item.number == null) {
+    return false;
+  }
+  const ownerRepo = parseOwnerRepoFromRepositoryUrl(item.repository_url);
+  return Boolean(ownerRepo) && !isOwnRepository(ownerRepo);
+}
+
 function parseArgs(argv) {
   const config = { ...DEFAULTS };
 
@@ -124,12 +152,6 @@ function parseArgs(argv) {
         break;
       case "--show-raw-events":
         config.showRawEvents = true;
-        break;
-      case "--enable-review-monitor":
-        config.enableReviewMonitor = true;
-        break;
-      case "--review-check-interval":
-        config.reviewCheckIntervalSeconds = requireInt(argv, ++index, current);
         break;
       case "--enable-event-listener":
         config.enableEventListener = true;
@@ -203,8 +225,6 @@ function printHelp() {
       "  --effort <mode>               思考深度：low/middle/high/xhigh/max，默认 max",
       "  --show-thinking               在终端显示 thinking 事件",
       "  --show-raw-events             直接打印原始 JSON 事件",
-      "  --enable-review-monitor       启用 PR review 监控功能",
-      "  --review-check-interval <n>   review 检查间隔（秒），默认 14400（4小时）",
       "  --enable-event-listener       启用 GitHub 事件监听（默认轮询间隔 3600000ms）",
       "  --event-poll-interval <n>     事件检测间隔（毫秒），默认 3600000（1小时）",
       "  --event-notification          启用系统通知（默认开启）",
@@ -322,10 +342,6 @@ function createLogger(logFilePath) {
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-function escapeRegExp(value) {
-  return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function cloneJson(value) {
@@ -882,29 +898,6 @@ function parseAckLine(line, task) {
     return { valid: true, payload };
   }
   return { valid: false, reason: "ack_payload_mismatch", payload };
-}
-
-function extractRecordField(content, fieldName) {
-  const pattern = new RegExp(`^\\s*-\\s*${escapeRegExp(fieldName)}\\s*[：:]\\s*(.+)$`, "im");
-  const match = String(content).match(pattern);
-  return match ? match[1].trim() : "";
-}
-
-function normalizeResultValue(value) {
-  const normalized = String(value || "").trim().toLowerCase();
-  if (!normalized) return "";
-  if (normalized === "已提交" || normalized === "submitted") return "submitted";
-  if (normalized === "waiting review" || normalized === "waiting-review") return "waiting-review";
-  if (normalized === "skipped") return "skipped";
-  if (normalized === "abandoned") return "abandoned";
-  if (normalized === "merged") return "merged";
-  if (normalized === "closed") return "closed";
-  return normalized;
-}
-
-function normalizeReviewState(value) {
-  const normalized = String(value || "").trim().toUpperCase();
-  return normalized || "";
 }
 
 function appendQuery(base, params) {
@@ -1652,15 +1645,29 @@ class EventListener {
     });
     const items = Array.isArray(raw.items) ? raw.items : [];
     return items
-      .filter((item) => item.repository_url && item.number)
+      .filter(shouldTrackOpenPrSearchItem)
       .map((item) => {
-        const ownerRepo = item.repository_url.replace("https://api.github.com/repos/", "");
+        const ownerRepo = parseOwnerRepoFromRepositoryUrl(item.repository_url);
         return {
           ownerRepo,
           prKey: `${ownerRepo}#${item.number}`,
           number: item.number,
         };
       });
+  }
+
+  _removeTrackedPr(prKey, reason, logEvent = "tracked_pr_removed") {
+    const removedTaskCount = this.taskManager.removeByPrKey(prKey);
+    this.state.remove(prKey);
+    this._processing.delete(prKey);
+    if (this.activeSubagents.has(prKey)) {
+      this.terminalPrs.add(prKey);
+    } else {
+      this.terminalPrs.delete(prKey);
+    }
+    this.actionLogger.writeLine(
+      `[${nowStamp()}] ${logEvent} pr=${prKey} reason=${reason} tasks=${removedTaskCount}`,
+    );
   }
 
   async _cleanupTerminalPrs(openPrKeys) {
@@ -1675,21 +1682,15 @@ class EventListener {
         continue;
       }
       try {
+        if (isOwnRepositoryPrKey(prKey)) {
+          this._removeTrackedPr(prKey, "ignored_own_repository");
+          continue;
+        }
         const terminalStatus = await fetchPrTerminalStatus(prKey);
         if (!terminalStatus.terminal) {
           continue;
         }
-        const removedTaskCount = this.taskManager.removeByPrKey(prKey);
-        this.state.remove(prKey);
-        this._processing.delete(prKey);
-        if (this.activeSubagents.has(prKey)) {
-          this.terminalPrs.add(prKey);
-        } else {
-          this.terminalPrs.delete(prKey);
-        }
-        this.actionLogger.writeLine(
-          `[${nowStamp()}] terminal_pr_removed pr=${prKey} reason=${terminalStatus.reason} tasks=${removedTaskCount}`,
-        );
+        this._removeTrackedPr(prKey, terminalStatus.reason, "terminal_pr_removed");
       } catch (error) {
         this.actionLogger.writeLine(
           `[${nowStamp()}] terminal_pr_check_failed pr=${prKey} err=${truncate(error.message || error, 300)}`,
@@ -2289,71 +2290,13 @@ async function main() {
   let lastOutputAt = Date.now();
   let lastNudgeAt = 0;
   const seenToolUses = new Set();
-  let pendingReviewPRs = [];
-  let lastReviewCheckAt = 0;
-
-  const scanPendingReviews = (force = false) => {
-    if (!config.enableReviewMonitor) {
-      return [];
-    }
-    const recordsDir = path.join(cwd, "records");
-    if (!fs.existsSync(recordsDir)) {
-      return [];
-    }
-    const now = Date.now();
-    const checkIntervalMs = config.reviewCheckIntervalSeconds * 1000;
-    if (!force && now - lastReviewCheckAt < checkIntervalMs) {
-      return pendingReviewPRs;
-    }
-    lastReviewCheckAt = now;
-
-    const files = fs.readdirSync(recordsDir).filter((file) => file.endsWith(".md"));
-    const nextPending = [];
-    for (const file of files) {
-      const content = fs.readFileSync(path.join(recordsDir, file), "utf8");
-      const result = normalizeResultValue(extractRecordField(content, "Result"));
-      const reviewState = normalizeReviewState(extractRecordField(content, "Current state"));
-      if (!["submitted", "waiting-review"].includes(result)) {
-        continue;
-      }
-      if (reviewState === "FINISHED") {
-        continue;
-      }
-      const prMatch = content.match(/(https:\/\/github\.com\/[^\s]+\/pull\/\d+)/i);
-      if (prMatch) {
-        nextPending.push({ file, url: prMatch[1] });
-      }
-    }
-    pendingReviewPRs = nextPending;
-    if (nextPending.length > 0) {
-      printInfo(`发现 ${nextPending.length} 个待检查的 PR review 状态`);
-      actionLogger.writeLine(
-        `[${nowStamp()}] review_pending count=${nextPending.length} files=${nextPending.map((item) => item.file).join(",")}`,
-      );
-    }
-    return nextPending;
-  };
-
-  const reviewCheckTimer = config.enableReviewMonitor
-    ? setInterval(() => {
-      scanPendingReviews(true);
-    }, Math.max(config.reviewCheckIntervalSeconds, 300) * 1000)
-    : null;
-
-  pendingReviewPRs = scanPendingReviews(true);
 
   const sendPrompt = (reason) => {
     if (childExited) {
       return;
     }
 
-    let fullPrompt = config.prompt;
-    if (config.enableReviewMonitor && pendingReviewPRs.length > 0) {
-      const prList = pendingReviewPRs.map((item) => `- ${item.file}: ${item.url}`).join("\n");
-      fullPrompt += `\n\n## 重要：PR Review 监控\n当前有 ${pendingReviewPRs.length} 个已提交的 PR 需要检查 review 状态：\n${prList}\n\n请先处理这些 review 相关任务，再继续寻找新的 PR 项目。`;
-    }
-
-    const payload = createJsonUserEvent(fullPrompt);
+    const payload = createJsonUserEvent(config.prompt);
     child.stdin.write(`${payload}\n`, "utf8");
     promptSent = true;
     lastNudgeAt = Date.now();
@@ -2459,7 +2402,6 @@ async function main() {
     childExited = true;
     clearTimeout(initialTimer);
     clearInterval(idleTimer);
-    if (reviewCheckTimer) clearInterval(reviewCheckTimer);
     if (eventListener) eventListener.stop();
     actionLogger.writeLine(`[${nowStamp()}] child_error=${error.message}`);
     transcriptLogger.close();
@@ -2476,7 +2418,6 @@ async function main() {
     childExited = true;
     clearTimeout(initialTimer);
     clearInterval(idleTimer);
-    if (reviewCheckTimer) clearInterval(reviewCheckTimer);
     if (eventListener) eventListener.stop();
     child.kill("SIGINT");
   };
@@ -2489,7 +2430,6 @@ async function main() {
       childExited = true;
       clearTimeout(initialTimer);
       clearInterval(idleTimer);
-      if (reviewCheckTimer) clearInterval(reviewCheckTimer);
       if (eventListener) eventListener.stop();
 
       if (stdoutBuffer.trim()) {
@@ -2544,9 +2484,12 @@ if (require.main === module) {
     emptyCursor,
     isNeedsRebaseFromRaw,
     isReadyToMergeFromRaw,
+    isOwnRepositoryPrKey,
     normalizeBaseline,
     normalizeBoundary,
     normalizeCommentBaselines,
     normalizeCommentCursorSet,
+    parseOwnerRepoFromRepositoryUrl,
+    shouldTrackOpenPrSearchItem,
   };
 }

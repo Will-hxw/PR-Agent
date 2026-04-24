@@ -67,7 +67,7 @@ node --check run-claude-agent.js
 node run-claude-agent.js
 ```
 
-推荐启动 Review 监控和事件监听：
+推荐启动事件监听；PR review 和 CI 检查统一通过 event listener 处理：
 ```bash
 node run-claude-agent.js \
   --cwd "D:\Desktop\pr" \
@@ -77,8 +77,6 @@ node run-claude-agent.js \
   --max-nudges 0 \
   --effort max \
   --claude-command claude.cmd \
-  --enable-review-monitor \
-  --review-check-interval 14400 \
   --enable-event-listener \
   --event-poll-interval 3600000 \
   --event-notification \
@@ -93,11 +91,19 @@ node run-claude-agent.js \
 - 启动 Claude。
 - 发送初始 prompt。
 - 在长时间无输出时自动补发提醒。
-- 可选定时扫描记录中的 PR。
-- 可选轮询 GitHub 事件并提醒处理。
+- 可选轮询 GitHub PR 事件并提醒处理 review、CI、评论和 merge 状态变化。
 - 写入结构化运行日志。
 
 脚本只负责调度。是否值得改、怎么改、怎么验证、是否提交 PR，仍以 `AGENT.md` 和 `pr_rule.md` 为准。
+
+---
+
+## PR 目标规则
+
+- 只向 upstream 开源仓库创建 PR，不要向自己的 fork 或个人仓库创建 PR。
+- 如果目标仓库在 `Will-hxw/*` 下，先确认它是否只是 fork；fork 内部 PR 不会把改动送到上游，不能作为开源贡献结果记录。
+- 正确流程是把分支 push 到自己的 fork，然后用 `gh pr create --repo <upstream-owner>/<upstream-repo> --head Will-hxw:<branch-name>` 向 upstream 创建 PR。
+- 事件监听生成 `event_state.json` / `event_task.json` 时会跳过 `Will-hxw/*` 仓库的 open PR，避免把自己的 fork PR 纳入 review / CI 跟进队列。
 
 ---
 
@@ -124,13 +130,6 @@ node run-claude-agent.js \
 | `--nudge-cooldown-seconds` | `30` | 两次提醒之间的最小间隔 |
 | `--max-nudges` | `0` | 最大提醒次数；`0` 表示不限制 |
 
-### Review 监控参数
-
-| 参数 | 默认值 | 说明 |
-|---|---:|---|
-| `--enable-review-monitor` | `false` | 开启定时 Review 检查 |
-| `--review-check-interval` | `14400` | Review 检查间隔，单位秒，默认 4 小时 |
-
 ### 事件监听参数
 
 | 参数 | 默认值 | 说明 |
@@ -146,11 +145,10 @@ node run-claude-agent.js \
 
 ## 监控模式
 
-脚本支持两类监控，可同时开启：
+脚本只保留事件监听作为 PR review / CI 检查入口：
 
 | 模式 | 开关 | 用途 |
 |---|---|---|
-| Review monitor | `--enable-review-monitor` | 定时提醒检查已提交 PR 的 Review 状态 |
 | Event listener | `--enable-event-listener` | 轮询 open PR，发现 CI、Review、评论、merge 状态变化 |
 
 事件模型分为两类：
@@ -244,10 +242,12 @@ D:\Desktop\pr\event_task.json
 
 ## 常用 GitHub 命令
 
-获取当前账号所有 open PR：
+获取当前账号所有 upstream open PR：
 
-```bash
-gh search prs --author Will-hxw --state open --limit 100
+```powershell
+(gh search prs --author Will-hxw --state open --limit 100 --json repository,number,url | ConvertFrom-Json) |
+  Where-Object { $_.repository.nameWithOwner -notlike 'Will-hxw/*' } |
+  Select-Object number,url,@{Name='repository';Expression={$_.repository.nameWithOwner}}
 ```
 
 查看单个 PR 状态：
@@ -286,6 +286,8 @@ gh api repos/<owner>/<repo>/pulls/<number>/reviews
 git push origin <branch-name>
 gh pr create --repo <owner>/<repo> --base <base-branch> --head <fork-owner>:<branch-name> --title "<title>" --body "<body>"
 ```
+
+这里的 `<owner>/<repo>` 必须是 upstream 仓库，不是 `Will-hxw/*` fork。
 
 ---
 
