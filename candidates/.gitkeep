@@ -1,0 +1,5 @@
+# candidates/
+
+This directory contains cloned candidate repositories for analysis.
+
+Actual project folders are ignored by `.gitignore` — only this placeholder is tracked.

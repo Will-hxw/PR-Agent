@@ -1,0 +1,5 @@
+# records/
+
+This directory contains PR attempt records for candidate projects.
+
+Actual record files are ignored by `.gitignore` — only this placeholder is tracked.
