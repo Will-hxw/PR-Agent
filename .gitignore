@@ -1,0 +1,6 @@
+.claude_agent_logs/
+agent.config.json
+candidates/*
+.playwright-mcp/
+node_modules/
+records/*
