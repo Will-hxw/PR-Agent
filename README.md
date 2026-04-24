@@ -28,7 +28,7 @@ D:\Desktop\pr
 |-- run-claude-agent.js
 |-- candidates/          # clone 下来的候选仓库
 |-- records/             # 每个项目的尝试记录
-|-- notes/               # 临时筛选笔记
+|-- notes/               # agent指导文档
 `-- .claude_agent_logs/  # 脚本运行日志
 ```
 
@@ -153,19 +153,21 @@ node run-claude-agent.js \
 
 事件模型分为两类：
 
-- task-backed：`CI_FAILURE`、`REVIEW_CHANGES_REQUESTED`、`MAINTAINER_COMMENT`、`BOT_COMMENT`、`NEW_COMMENT`、`NEEDS_REBASE`、`READY_TO_MERGE`
-- notify-only：`CI_PASSED`、`REVIEW_APPROVED`
+- task-backed：`CI_FAILURE`、`REVIEW_CHANGES_REQUESTED`、`MAINTAINER_COMMENT`、`BOT_COMMENT`、`NEW_COMMENT`、`NEEDS_REBASE`
+- notify-only：`CI_PASSED`、`REVIEW_APPROVED`、`READY_TO_MERGE`
 
 事件监听的硬规则：
 
+- 启动时和每次轮询必须调用同一个 `generateEventJson()` 入口生成 `event_state.json` / `event_task.json`；subagent 派发只能发生在该入口完成并保存之后。
 - 只要 `event_task.json` 中仍存在同 `prKey + type` 的 task，就视为去重命中，不会重复建 task。
-- task 成功后直接从 `event_task.json` 删除，不保留 handled 历史项。
+- task 成功后直接从 `event_task.json` 删除，不保留 handled 历史项；subagent 完成时由成功确认协议触发 launcher 自动删除，主 Agent 亲自处理并确认完成时可以直接删除对应 task 条目。
+- 主 Agent 手工删除 task 前，必须先按 `notes/event-task-state-maintenance.md` 更新 `event_state.json` 的 handled baseline。
 - task 失败最多自动尝试 5 次；超过上限后变成 `dead`。`dead` 只在底层触发条件仍然存在时继续阻塞同类事件；如果触发条件消失，会在后续扫描中自动回收。
-- `CI_FAILURE`、`REVIEW_CHANGES_REQUESTED`、`NEEDS_REBASE`、`READY_TO_MERGE` 这类状态型 task 只有在 GitHub 最新状态里的触发条件消失后才允许清除；如果 subagent 报告成功但触发条件仍存在，应保留 task 并进入重试/`dead` 流程。
+- `CI_FAILURE`、`REVIEW_CHANGES_REQUESTED`、`NEEDS_REBASE` 这类状态型 task 只有在 GitHub 最新状态里的触发条件消失后才允许清除；如果 subagent 报告成功但触发条件仍存在，应保留 task 并进入重试/`dead` 流程。
 - 成功后的状态刷新以 GitHub 最新数据为准；评论类 cursor 只推进到 task 创建时的 boundary，然后立即对该 PR 局部重扫，避免吞掉处理中途到达的新评论。
 - 评论 backlog 按 `MAINTAINER_COMMENT`、`BOT_COMMENT`、`NEW_COMMENT` 三类独立跟踪，同一轮扫描里最多可并存三条评论 task。
 
-具体处理流程以 `AGENT.md` 的 Review 与 CI 跟进规则为准。
+具体处理流程以 `AGENT.md` 的 Review / CI 跟进规则和 `notes/event-task-state-maintenance.md` 的状态维护规则为准。
 
 ---
 

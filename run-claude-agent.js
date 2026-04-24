@@ -22,7 +22,7 @@ const DEFAULTS = {
   claudeCommand: process.platform === "win32" ? "claude.cmd" : "claude",
   effort: "max",
   prompt:
-    '请用json解析工具理解"D:\\Desktop\\pr\\event_state.json"和"D:\\Desktop\\pr\\event_task.json"，了解当前 PR 状态和未完成任务，逐步一个一个解决D:\\Desktop\\pr\\event_task.json的task，再开始寻找新的 PR 项目。请同时维护 D:\\Desktop\\pr 的 git（你不可以创建该项目的分支，但是可以在candidates中管理具体项目的git），并遵守同目录下的 AGENT.md 与 pr_rule.md。',
+    '请用json解析工具理解"D:\\Desktop\\pr\\event_state.json"和"D:\\Desktop\\pr\\event_task.json"，了解当前 PR 状态和未完成任务，逐步一个一个解决D:\\Desktop\\pr\\event_task.json的task；主Agent亲自确认某个task已完成后，必须先按"D:\\Desktop\\pr\\notes\\event-task-state-maintenance.md"更新D:\\Desktop\\pr\\event_state.json，再删除D:\\Desktop\\pr\\event_task.json中的对应task条目，然后开始寻找新的 PR 项目。请同时维护 D:\\Desktop\\pr 的 git（你不可以创建该项目的分支，但是可以在candidates中管理具体项目的git），并遵守同目录下的 AGENT.md 与 pr_rule.md。',
   logDirName: ".claude_agent_logs",
   showThinking: false,
   showRawEvents: false,
@@ -45,12 +45,11 @@ const TASK_EVENT_SEVERITY = {
   BOT_COMMENT: "LIGHT",
   NEW_COMMENT: "LIGHT",
   NEEDS_REBASE: "LIGHT",
-  READY_TO_MERGE: "LIGHT",
 };
 const TASK_EVENT_TYPES = new Set(Object.keys(TASK_EVENT_SEVERITY));
-const INFO_ONLY_EVENT_TYPES = new Set(["CI_PASSED", "REVIEW_APPROVED"]);
+const INFO_ONLY_EVENT_TYPES = new Set(["CI_PASSED", "REVIEW_APPROVED", "READY_TO_MERGE"]);
 const COMMENT_TASK_TYPES = new Set(["MAINTAINER_COMMENT", "BOT_COMMENT", "NEW_COMMENT"]);
-const MERGE_TASK_TYPES = new Set(["NEEDS_REBASE", "READY_TO_MERGE"]);
+const MERGE_TASK_TYPES = new Set(["NEEDS_REBASE"]);
 const STATE_BACKED_TASK_TYPES = new Set(["CI_FAILURE", "REVIEW_CHANGES_REQUESTED", ...MERGE_TASK_TYPES]);
 const COMMENT_CATEGORIES = ["maintainer", "bot", "user"];
 const COMMENT_TASK_TYPE_BY_CATEGORY = Object.freeze({
@@ -743,6 +742,8 @@ function buildSubagentPrompt(task) {
     "3. 如需查看 CI，使用 gh pr checks <number> --repo <owner>/<repo>。",
     `4. 如需回复 inline review comment，必须回复原线程，例如：gh api repos/${owner}/${repo}/pulls/${prNumber}/comments/<comment_id>/replies -X POST -f body='<reply>'`,
     "5. 如需更新记录，只更新与该 PR 直接相关的 records 内容。",
+    "6. 任务/状态文件维护规则见 D:\\Desktop\\pr\\notes\\event-task-state-maintenance.md。",
+    "7. 这是 subagent 任务，不要手动编辑 D:\\Desktop\\pr\\event_state.json 或 D:\\Desktop\\pr\\event_task.json；完成后按成功确认协议输出 ack，由 launcher 推进 state 并删除对应 task。",
     "",
     "成功确认协议：",
     "只有在你确认该事件已经处理完成时，最后单独输出下面这一行，不要放进代码块，不要改写字段：",
@@ -854,9 +855,6 @@ function isTaskTriggerActive(type, snapshot) {
   if (type === "NEEDS_REBASE") {
     return isNeedsRebaseFromRaw(snapshot);
   }
-  if (type === "READY_TO_MERGE") {
-    return isReadyToMergeFromRaw(snapshot);
-  }
   return false;
 }
 
@@ -878,9 +876,6 @@ function describeActiveTaskTrigger(type, snapshot) {
   } else if (type === "NEEDS_REBASE") {
     parts.push(`mergeStateStatus=${snapshot.mergeStateStatus || "unknown"}`);
     parts.push(`mergeable=${snapshot.mergeable || "unknown"}`);
-  } else if (type === "READY_TO_MERGE") {
-    parts.push(`reviewDecision=${snapshot.reviewDecision || "unknown"}`);
-    parts.push(`mergeStateStatus=${snapshot.mergeStateStatus || "unknown"}`);
   }
   return parts.join(" ");
 }
@@ -1590,9 +1585,13 @@ class EventListener {
     await this.taskManager.save();
   }
 
-  async bootstrapRefresh() {
+  async generateEventJson() {
     await this.load();
-    await this._refresh(false);
+    await this._refreshJsonState();
+  }
+
+  async bootstrapRefresh() {
+    await this.generateEventJson();
   }
 
   async start() {
@@ -1628,7 +1627,7 @@ class EventListener {
     if (!this.enabled) {
       return;
     }
-    this._refresh(true)
+    this._runPollCycle()
       .catch((error) => {
         this.actionLogger.writeLine(`[${nowStamp()}] event_tick_error=${truncate(error.message || error, 300)}`);
       })
@@ -1637,7 +1636,12 @@ class EventListener {
       });
   }
 
-  async _refresh(dispatchNewTasks) {
+  async _runPollCycle() {
+    await this.generateEventJson();
+    await this._dispatchRunnableTasks();
+  }
+
+  async _refreshJsonState() {
     const logPrefix = `[${nowStamp()}] event_tick`;
     let prList;
     try {
@@ -1659,9 +1663,6 @@ class EventListener {
       }
     }
 
-    if (dispatchNewTasks) {
-      await this._dispatchRunnableTasks();
-    }
     await this.saveAll();
   }
 
@@ -1787,21 +1788,6 @@ class EventListener {
       });
     }
 
-    const currentReadyToMerge = isReadyToMergeFromRaw(snapshot);
-    if (currentReadyToMerge) {
-      candidateTasks.set("READY_TO_MERGE", {
-        type: "READY_TO_MERGE",
-        severity: TASK_EVENT_SEVERITY.READY_TO_MERGE,
-        boundary: fullBoundary,
-        details: buildTaskDetails("READY_TO_MERGE", snapshot, {
-          reviewDecision: snapshot.reviewDecision,
-          mergeStateStatus: snapshot.mergeStateStatus,
-          mergeable: snapshot.mergeable,
-          unresolvedReviewThreadCount: snapshot.unresolvedReviewThreadCount,
-        }),
-      });
-    }
-
     const existingByType = new Map();
     for (const task of this.taskManager.listByPrKey(snapshot.prKey)) {
       if (!TASK_EVENT_TYPES.has(task.type)) {
@@ -1887,6 +1873,13 @@ class EventListener {
         notifyEvent("REVIEW_APPROVED", snapshot.prKey, "INFO", this.actionLogger);
       }
       this.actionLogger.writeLine(`[${nowStamp()}] event_info pr=${snapshot.prKey} type=REVIEW_APPROVED`);
+    }
+
+    if (isReadyToMergeFromRaw(snapshot) && !isReadyToMergeFromRaw(observed)) {
+      if (this.config.eventNotificationEnabled) {
+        notifyEvent("READY_TO_MERGE", snapshot.prKey, "INFO", this.actionLogger);
+      }
+      this.actionLogger.writeLine(`[${nowStamp()}] event_info pr=${snapshot.prKey} type=READY_TO_MERGE`);
     }
 
     this.state.setObservedSnapshot(snapshot.prKey, snapshot);
@@ -2274,25 +2267,15 @@ async function main() {
   actionLogger.writeLine(`git_status=${gitStatus}`);
   actionLogger.writeLine(`prompt=${config.prompt}`);
 
-  const bootstrapListener = new EventListener({
+  const eventListener = new EventListener({
     cwd,
     claudeCommand: config.claudeCommand,
     eventPollIntervalMs: config.eventPollIntervalMs,
     eventNotificationEnabled: config.eventNotificationEnabled,
-    enableTaskDispatch: false,
+    enableTaskDispatch: config.enableEventListener,
   }, actionLogger);
-  await bootstrapListener.bootstrapRefresh();
+  await eventListener.bootstrapRefresh();
   actionLogger.writeLine(`[${nowStamp()}] bootstrap_done`);
-
-  const eventListener = config.enableEventListener
-    ? new EventListener({
-      cwd,
-      claudeCommand: config.claudeCommand,
-      eventPollIntervalMs: config.eventPollIntervalMs,
-      eventNotificationEnabled: config.eventNotificationEnabled,
-      enableTaskDispatch: true,
-    }, actionLogger)
-    : null;
 
   const commandString = [
     shellQuote(config.claudeCommand),
@@ -2314,7 +2297,7 @@ async function main() {
     windowsHide: false,
   });
 
-  if (eventListener) {
+  if (config.enableEventListener) {
     await eventListener.start();
     printInfo(`事件监听已启用，轮询间隔 ${config.eventPollIntervalMs}ms`);
   }
@@ -2439,7 +2422,7 @@ async function main() {
     childExited = true;
     clearTimeout(initialTimer);
     clearInterval(idleTimer);
-    if (eventListener) eventListener.stop();
+    if (config.enableEventListener) eventListener.stop();
     actionLogger.writeLine(`[${nowStamp()}] child_error=${error.message}`);
     transcriptLogger.close();
     actionLogger.close();
@@ -2455,7 +2438,7 @@ async function main() {
     childExited = true;
     clearTimeout(initialTimer);
     clearInterval(idleTimer);
-    if (eventListener) eventListener.stop();
+    if (config.enableEventListener) eventListener.stop();
     child.kill("SIGINT");
   };
 
@@ -2467,7 +2450,7 @@ async function main() {
       childExited = true;
       clearTimeout(initialTimer);
       clearInterval(idleTimer);
-      if (eventListener) eventListener.stop();
+      if (config.enableEventListener) eventListener.stop();
 
       if (stdoutBuffer.trim()) {
         handleStdoutLine(stdoutBuffer.trim());
