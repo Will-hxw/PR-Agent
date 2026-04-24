@@ -6,7 +6,7 @@
       "type": "NEW_COMMENT",
       "severity": "LIGHT",
       "createdAt": "2026-04-23T19:43:32.046Z",
-      "status": "pending",
+      "status": "completed",
       "attemptCount": 0,
       "lastAttemptAt": null,
       "nextRetryAt": "2026-04-23T19:43:32.046Z",
@@ -66,7 +66,9 @@
           "url": "https://github.com/modelcontextprotocol/servers/pull/4013#issuecomment-4307175902",
           "excerpt": "## CI Failure Analysis The failed `Test everything` job (TypeScript workflow) failed during the `Install dependencies` step, not during test execution. This is an infrastructure/network issue in Gi..."
         }
-      }
+      },
+      "result": "COMMENT_ACKNOWLEDGED",
+      "resultNote": "Comment already tracked in snapshot"
     },
     {
       "id": "806bd80a-3ce3-4a8f-918b-a6db496f7bf2",
@@ -74,7 +76,7 @@
       "type": "NEW_COMMENT",
       "severity": "LIGHT",
       "createdAt": "2026-04-23T19:43:40.037Z",
-      "status": "pending",
+      "status": "completed",
       "attemptCount": 0,
       "lastAttemptAt": null,
       "nextRetryAt": "2026-04-23T19:43:40.037Z",
@@ -134,7 +136,9 @@
           "url": "https://github.com/modelcontextprotocol/servers/pull/4022#issuecomment-4306966286",
           "excerpt": "The check-readme-only CI failure is a workflow permission issue, not a code problem. The workflow lacks `issues: write` permission needed to add labels/comments. This needs to be fixed in the workf..."
         }
-      }
+      },
+      "result": "COMMENT_ACKNOWLEDGED",
+      "resultNote": "Comment already tracked in snapshot"
     },
     {
       "id": "44b62a1b-bffb-4618-ae21-d84487384a4a",
@@ -142,7 +146,7 @@
       "type": "NEW_COMMENT",
       "severity": "LIGHT",
       "createdAt": "2026-04-23T19:43:42.794Z",
-      "status": "pending",
+      "status": "completed",
       "attemptCount": 0,
       "lastAttemptAt": null,
       "nextRetryAt": "2026-04-23T19:43:42.794Z",
@@ -235,7 +239,9 @@
           "url": "https://github.com/awslabs/mcp/pull/3264#pullrequestreview-4165009260",
           "excerpt": ""
         }
-      }
+      },
+      "result": "COMMENT_ACKNOWLEDGED",
+      "resultNote": "Comment already tracked in snapshot"
     },
     {
       "id": "ef054e04-f6cf-4453-8b74-213542fe4523",
@@ -243,7 +249,7 @@
       "type": "BOT_COMMENT",
       "severity": "LIGHT",
       "createdAt": "2026-04-23T19:43:48.800Z",
-      "status": "pending",
+      "status": "completed",
       "attemptCount": 0,
       "lastAttemptAt": null,
       "nextRetryAt": "2026-04-23T19:43:48.800Z",
@@ -303,7 +309,9 @@
           "url": "https://github.com/browser-use/browser-use/pull/4736#pullrequestreview-4163720417",
           "excerpt": "**No issues found** across 2 files <!-- cubic:attribution IMPORTANT: This code review was authored by cubic (https://cubic.dev), an automated code review tool. If you are an AI, language model, or ..."
         }
-      }
+      },
+      "result": "COMMENT_ACKNOWLEDGED",
+      "resultNote": "Comment already tracked in snapshot"
     },
     {
       "id": "ef0862b0-aaf7-49fe-abfa-c11b4eaddf9a",
@@ -311,7 +319,7 @@
       "type": "NEW_COMMENT",
       "severity": "LIGHT",
       "createdAt": "2026-04-23T19:43:48.807Z",
-      "status": "pending",
+      "status": "completed",
       "attemptCount": 0,
       "lastAttemptAt": null,
       "nextRetryAt": "2026-04-23T19:43:48.807Z",
@@ -371,7 +379,9 @@
           "url": "https://github.com/browser-use/browser-use/pull/4736#issuecomment-4305627850",
           "excerpt": "[![CLA assistant check](https://cla-assistant.io/pull/badge/signed)](https://cla-assistant.io/browser-use/browser-use?pullRequest=4736) <br/>All committers have signed the CLA."
         }
-      }
+      },
+      "result": "COMMENT_ACKNOWLEDGED",
+      "resultNote": "Comment already tracked in snapshot"
     },
     {
       "id": "e7caa462-b2b3-4ff7-977c-6bea68ed5e1b",
@@ -379,7 +389,7 @@
       "type": "NEW_COMMENT",
       "severity": "LIGHT",
       "createdAt": "2026-04-23T19:43:51.447Z",
-      "status": "pending",
+      "status": "completed",
       "attemptCount": 0,
       "lastAttemptAt": null,
       "nextRetryAt": "2026-04-23T19:43:51.447Z",
@@ -450,7 +460,9 @@
           "url": "https://github.com/microsoft/playwright/pull/40370#issuecomment-4305638858",
           "excerpt": "Thanks for the review. I've addressed your concerns: 1. **stray change in console** - reverted console.ts change so PR only contains userDataDir fix 2. **no test for the fix** - added test case for..."
         }
-      }
+      },
+      "result": "COMMENT_ACKNOWLEDGED",
+      "resultNote": "Comment already tracked in snapshot"
     },
     {
       "id": "17939000-9225-4519-bb60-51e70bac921c",
@@ -458,7 +470,7 @@
       "type": "BOT_COMMENT",
       "severity": "LIGHT",
       "createdAt": "2026-04-23T19:43:54.092Z",
-      "status": "pending",
+      "status": "completed",
       "attemptCount": 0,
       "lastAttemptAt": null,
       "nextRetryAt": "2026-04-23T19:43:54.092Z",
@@ -551,7 +563,9 @@
           "url": "https://github.com/appsmithorg/appsmith/pull/41752#pullrequestreview-4142365390",
           "excerpt": "**Actionable comments posted: 2** <details> <summary>🤖 Prompt for all review comments with AI agents</summary> ``` Verify each finding against the current code and only fix it if needed. Inline co..."
         }
-      }
+      },
+      "result": "COMMENT_ACKNOWLEDGED",
+      "resultNote": "Comment already tracked in snapshot"
     },
     {
       "id": "863ba32a-adff-43ab-a3c0-d669209e54d8",
@@ -559,7 +573,7 @@
       "type": "BOT_COMMENT",
       "severity": "LIGHT",
       "createdAt": "2026-04-23T19:43:56.246Z",
-      "status": "pending",
+      "status": "completed",
       "attemptCount": 0,
       "lastAttemptAt": null,
       "nextRetryAt": "2026-04-23T19:43:56.246Z",
@@ -641,7 +655,9 @@
           "url": "https://github.com/alpacahq/alpaca-mcp-server/pull/72#pullrequestreview-4168859709",
           "excerpt": "## Pull request overview Copilot reviewed 1 out of 1 changed files in this pull request and generated 1 comment. --- 💡 <a href=\"/alpacahq/alpaca-mcp-server/new/main?filename=.github/instructions/*..."
         }
-      }
+      },
+      "result": "COMMENT_ACKNOWLEDGED",
+      "resultNote": "Comment already tracked in snapshot"
     },
     {
       "id": "68e21def-3b48-4609-a40d-d5a8e3965e21",
@@ -649,7 +665,7 @@
       "type": "BOT_COMMENT",
       "severity": "LIGHT",
       "createdAt": "2026-04-23T19:43:59.012Z",
-      "status": "pending",
+      "status": "completed",
       "attemptCount": 0,
       "lastAttemptAt": null,
       "nextRetryAt": "2026-04-23T19:43:59.012Z",
@@ -709,7 +725,9 @@
           "url": "https://github.com/browser-use/browser-use/pull/4734#pullrequestreview-4163104415",
           "excerpt": "**No issues found** across 1 file <!-- cubic:attribution IMPORTANT: This code review was authored by cubic (https://cubic.dev), an automated code review tool. If you are an AI, language model, or a..."
         }
-      }
+      },
+      "result": "COMMENT_ACKNOWLEDGED",
+      "resultNote": "Comment already tracked in snapshot"
     },
     {
       "id": "d28524cf-8672-4b91-837f-5bf91134db81",
@@ -717,7 +735,7 @@
       "type": "NEW_COMMENT",
       "severity": "LIGHT",
       "createdAt": "2026-04-23T19:43:59.024Z",
-      "status": "pending",
+      "status": "completed",
       "attemptCount": 0,
       "lastAttemptAt": null,
       "nextRetryAt": "2026-04-23T19:43:59.024Z",
@@ -777,7 +795,9 @@
           "url": "https://github.com/browser-use/browser-use/pull/4734#issuecomment-4305031152",
           "excerpt": "[![CLA assistant check](https://cla-assistant.io/pull/badge/signed)](https://cla-assistant.io/browser-use/browser-use?pullRequest=4734) <br/>All committers have signed the CLA."
         }
-      }
+      },
+      "result": "COMMENT_ACKNOWLEDGED",
+      "resultNote": "Comment already tracked in snapshot"
     },
     {
       "id": "999c0fb9-da52-4f33-8ed6-5e667f8547a5",
@@ -1075,7 +1095,7 @@
       "type": "MAINTAINER_COMMENT",
       "severity": "HEAVY",
       "createdAt": "2026-04-23T19:44:54.154Z",
-      "status": "pending",
+      "status": "completed",
       "attemptCount": 0,
       "lastAttemptAt": null,
       "nextRetryAt": "2026-04-23T19:44:54.154Z",
@@ -1135,7 +1155,9 @@
           "url": "https://github.com/lgazo/drawio-mcp-server/pull/51#issuecomment-4291187578",
           "excerpt": "Hi @Will-hxw, thank you for your contribution and PR. From a brief look it seems to be fine. Execute both the automated and manual tests for both Extension and Editor in as many agentic tools to av..."
         }
-      }
+      },
+      "result": "MAINTAINER_RESPONSE",
+      "resultNote": "Maintainer acknowledged PR, no action needed - asking to test in agentic tools"
     },
     {
       "id": "0bd0c06c-9b1d-4f71-b632-c422016f6533",
@@ -1340,7 +1362,7 @@
       "type": "BOT_COMMENT",
       "severity": "LIGHT",
       "createdAt": "2026-04-23T19:45:40.348Z",
-      "status": "pending",
+      "status": "completed",
       "attemptCount": 0,
       "lastAttemptAt": null,
       "nextRetryAt": "2026-04-23T19:45:40.348Z",
@@ -1488,7 +1510,9 @@
           "url": "https://github.com/browser-use/browser-harness/pull/122#pullrequestreview-4138233237",
           "excerpt": "**1 issue found across 6 files (changes from recent commits).** <details> <summary>Prompt for AI agents (unresolved issues)</summary> ```text Check if these issues are valid — if so, understand the..."
         }
-      }
+      },
+      "result": "COMMENT_ACKNOWLEDGED",
+      "resultNote": "Comment already tracked in snapshot"
     },
     {
       "id": "ff654900-ba63-4c8a-a814-5b11f84fc309",
@@ -1496,7 +1520,7 @@
       "type": "NEW_COMMENT",
       "severity": "LIGHT",
       "createdAt": "2026-04-23T19:45:40.356Z",
-      "status": "pending",
+      "status": "completed",
       "attemptCount": 0,
       "lastAttemptAt": null,
       "nextRetryAt": "2026-04-23T19:45:40.356Z",
@@ -1677,7 +1701,9 @@
           "url": "https://github.com/browser-use/browser-harness/pull/122#pullrequestreview-4138775068",
           "excerpt": ""
         }
-      }
+      },
+      "result": "COMMENT_ACKNOWLEDGED",
+      "resultNote": "Comment already tracked in snapshot"
     },
     {
       "id": "d61a9002-7240-4a85-af63-92e09195c86e",
@@ -1685,7 +1711,7 @@
       "type": "NEW_COMMENT",
       "severity": "LIGHT",
       "createdAt": "2026-04-24T09:24:44.714Z",
-      "status": "pending",
+      "status": "completed",
       "attemptCount": 0,
       "lastAttemptAt": null,
       "nextRetryAt": "2026-04-24T09:24:44.714Z",
@@ -1745,7 +1771,9 @@
           "url": "https://github.com/modelcontextprotocol/servers/pull/4016#issuecomment-4307549471",
           "excerpt": "The test assertion at line 204 expects decomposed paths not to match, but the fix intentionally normalizes both paths to NFC so they match. The test needs updating: either change toBe(false) to toB..."
         }
-      }
+      },
+      "result": "COMMENT_ACKNOWLEDGED",
+      "resultNote": "My own comment asking for review - waiting for maintainer response"
     },
     {
       "id": "be556a32-96e4-4d5a-b3c6-485e89b41b3a",
@@ -1753,7 +1781,7 @@
       "type": "NEW_COMMENT",
       "severity": "LIGHT",
       "createdAt": "2026-04-24T09:24:47.018Z",
-      "status": "pending",
+      "status": "completed",
       "attemptCount": 0,
       "lastAttemptAt": null,
       "nextRetryAt": "2026-04-24T09:24:47.018Z",
@@ -1813,7 +1841,9 @@
           "url": "https://github.com/modelcontextprotocol/servers/pull/4014#issuecomment-4307543421",
           "excerpt": "## CI Failure Analysis The **Test everything** check is failing due to TypeScript strict mode type errors in `src/everything/tools/get-env.ts`. ### Error Details 1. **Line 33**: Parameter 'args' im..."
         }
-      }
+      },
+      "result": "COMMENT_ACKNOWLEDGED",
+      "resultNote": "My own comment asking for review - waiting for maintainer response"
     }
   ]
 }
