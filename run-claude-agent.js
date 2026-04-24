@@ -1710,7 +1710,7 @@ class EventListener {
   async start() {
     await this.load();
     this.enabled = true;
-    await this._dispatchRunnableTasks();
+    // 启动时不立即 dispatch，让主 Claude 通过 prompt 处理 bootstrap 产生的 task
     this._scheduleNext();
     this.actionLogger.writeLine(`[${nowStamp()}] event_listener_start interval=${this.intervalMs}ms`);
   }
@@ -1813,11 +1813,7 @@ class EventListener {
     const removedTaskCount = this.taskManager.removeByPrKey(prKey);
     this.state.remove(prKey);
     this._processing.delete(prKey);
-    if (this.activeSubagents.has(prKey)) {
-      this.terminalPrs.add(prKey);
-    } else {
-      this.terminalPrs.delete(prKey);
-    }
+    this.terminalPrs.delete(prKey);
     this.actionLogger.writeLine(
       `[${nowStamp()}] ${logEvent} pr=${prKey} reason=${reason} tasks=${removedTaskCount}`,
     );
@@ -2027,7 +2023,7 @@ class EventListener {
         if (this.activeSubagents.size >= MAX_PARALLEL_SUBAGENTS) {
           break;
         }
-        if (this._processing.has(task.prKey) || this.terminalPrs.has(task.prKey)) {
+        if (this._processing.has(task.prKey)) {
           continue;
         }
         await this._startTask(task);
@@ -2263,6 +2259,7 @@ class EventListener {
 
     this.state.applyTaskSuccess(task, refreshedSnapshot);
     this.taskManager.remove(task.id);
+    this._processing.delete(task.prKey);
     this.actionLogger.writeLine(`[${nowStamp()}] event_task_success pr=${task.prKey} task=${task.id} type=${task.type}`);
     await this.saveAll();
 
