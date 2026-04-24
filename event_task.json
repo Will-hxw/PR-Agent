@@ -785,7 +785,7 @@
       "type": "NEEDS_REBASE",
       "severity": "LIGHT",
       "createdAt": "2026-04-23T19:44:05.708Z",
-      "status": "pending",
+      "status": "completed",
       "attemptCount": 0,
       "lastAttemptAt": null,
       "nextRetryAt": "2026-04-23T19:44:05.708Z",
@@ -817,7 +817,9 @@
         "headSha": "479cd77eebde00b589c860f069a783d4b7b75433",
         "mergeStateStatus": "BEHIND",
         "mergeable": "MERGEABLE"
-      }
+      },
+      "result": "NOT_BEHIND",
+      "resultNote": "PR is BLOCKED due to review requirement, not BEHIND - needs maintainer review not rebase"
     },
     {
       "id": "9a1501a4-2f6b-43cd-9e4e-b457461c73dc",
@@ -825,7 +827,7 @@
       "type": "NEEDS_REBASE",
       "severity": "LIGHT",
       "createdAt": "2026-04-23T19:44:08.070Z",
-      "status": "pending",
+      "status": "completed",
       "attemptCount": 0,
       "lastAttemptAt": null,
       "nextRetryAt": "2026-04-23T19:44:08.070Z",
@@ -857,7 +859,9 @@
         "headSha": "e5d6a28d617ddab116e573360d65f0def4746f9d",
         "mergeStateStatus": "BEHIND",
         "mergeable": "MERGEABLE"
-      }
+      },
+      "result": "NOT_BEHIND",
+      "resultNote": "PR is BLOCKED due to review requirement, not BEHIND - needs maintainer review not rebase"
     },
     {
       "id": "0fbad47f-d156-444f-9e78-617e9f5db103",
@@ -865,13 +869,13 @@
       "type": "CI_FAILURE",
       "severity": "HEAVY",
       "createdAt": "2026-04-23T19:44:21.885Z",
-      "status": "running",
+      "status": "pending",
       "attemptCount": 2,
-      "lastAttemptAt": "2026-04-24T09:26:08.837Z",
+      "lastAttemptAt": null,
       "nextRetryAt": null,
       "lastError": null,
-      "claimedAt": "2026-04-24T09:26:08.837Z",
-      "runningPid": 2696,
+      "claimedAt": null,
+      "runningPid": null,
       "boundary": {
         "issueCommentCursor": {
           "count": 0,
@@ -910,13 +914,13 @@
       "type": "CI_FAILURE",
       "severity": "HEAVY",
       "createdAt": "2026-04-23T19:44:24.035Z",
-      "status": "running",
+      "status": "completed",
       "attemptCount": 2,
-      "lastAttemptAt": "2026-04-24T09:26:08.847Z",
+      "lastAttemptAt": null,
       "nextRetryAt": null,
       "lastError": null,
-      "claimedAt": "2026-04-24T09:26:08.847Z",
-      "runningPid": 36140,
+      "claimedAt": null,
+      "runningPid": null,
       "boundary": {
         "issueCommentCursor": {
           "count": 1,
@@ -947,7 +951,9 @@
             "conclusion": "FAILURE"
           }
         ]
-      }
+      },
+      "result": "CI_PASSED",
+      "resultNote": "CI now passing after previous fix, needs maintainer review"
     },
     {
       "id": "13064d0f-d627-41f5-a5e7-6e63ce6b6052",
@@ -955,13 +961,13 @@
       "type": "CI_FAILURE",
       "severity": "HEAVY",
       "createdAt": "2026-04-23T19:44:35.476Z",
-      "status": "running",
+      "status": "completed",
       "attemptCount": 1,
-      "lastAttemptAt": "2026-04-24T09:29:56.818Z",
+      "lastAttemptAt": null,
       "nextRetryAt": null,
       "lastError": null,
-      "claimedAt": "2026-04-24T09:29:56.818Z",
-      "runningPid": 17352,
+      "claimedAt": null,
+      "runningPid": null,
       "boundary": {
         "issueCommentCursor": {
           "count": 0,
@@ -997,7 +1003,9 @@
             "conclusion": "CANCELLED"
           }
         ]
-      }
+      },
+      "result": "CI_PASSED",
+      "resultNote": "CI now passing after previous fix, needs maintainer review"
     },
     {
       "id": "1bc96cf5-c5f2-4b9c-a311-4214aa2e6c8a",
@@ -1288,7 +1296,7 @@
       "type": "NEEDS_REBASE",
       "severity": "LIGHT",
       "createdAt": "2026-04-23T19:45:17.917Z",
-      "status": "pending",
+      "status": "completed",
       "attemptCount": 0,
       "lastAttemptAt": null,
       "nextRetryAt": "2026-04-23T19:45:17.917Z",
@@ -1320,7 +1328,9 @@
         "headSha": "4c38a9bf51531f5f585106865de2ac0fe8b699cc",
         "mergeStateStatus": "BEHIND",
         "mergeable": "MERGEABLE"
-      }
+      },
+      "result": "NOT_BEHIND",
+      "resultNote": "PR is BLOCKED due to review requirement, not BEHIND - needs maintainer review not rebase"
     },
     {
       "id": "833a1222-4107-44b8-8225-c1a93ef8da04",
