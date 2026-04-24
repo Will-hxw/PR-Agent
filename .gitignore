@@ -1,16 +1,6 @@
 .claude_agent_logs/
 agent.config.json
-event_state.json
-event_task.json
-event_state.json.*.tmp
-event_task.json.*.tmp
 candidates/*
-100/
-200/
-2026-03-01
-docs/
 .playwright-mcp/
-package-lock.json
-package.json
 node_modules/
 records/*
