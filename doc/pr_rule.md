@@ -1,4 +1,4 @@
-# pr_rule.md
+# doc/pr_rule.md
 
 > 本文件只定义 PR 质量与协作规则。
 > 执行顺序、目录约定、监控流程和记录格式见 [`AGENT.md`](AGENT.md)。

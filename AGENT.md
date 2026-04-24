@@ -2,16 +2,16 @@
 
 > 适用对象：在本仓库根目录中运行的 Codex / Claude / 代码代理
 > 主职责：寻找高质量开源 PR 机会，完成从筛选、分析、修改、提交到 Review 跟进的闭环
-> 质量细则：同时遵守 [`pr_rule.md`](pr_rule.md)
+> 质量细则：同时遵守 [`doc/pr_rule.md`](doc/pr_rule.md)
 ---
 
 ## 1. 文档分工
 
 - `README.md`：项目入口、启动命令、`run-claude-agent.js` 参数说明。
 - `AGENT.md`：代理执行一轮开源贡献的主工作流和硬性约束。
-- `pr_rule.md`：判断 PR 是否值得做、如何写 PR、如何回复 Review 的质量规则。
+- `doc/pr_rule.md`：判断 PR 是否值得做、如何写 PR、如何回复 Review 的质量规则。
 
-不要在 `AGENT.md` 和 `pr_rule.md` 中重复维护同一类内容。流程写在这里，质量判断写在 `pr_rule.md`。
+不要在 `AGENT.md` 和 `doc/pr_rule.md` 中重复维护同一类内容。流程写在这里，质量判断写在 `doc/pr_rule.md`。
 
 ### 优先级
 
@@ -20,7 +20,7 @@
 1. 用户在当前任务中的明确指令。
 2. 目标仓库自己的 `CONTRIBUTING.md`、模板、维护者要求和安全规则。
 3. 本文件的执行流程。
-4. `pr_rule.md` 的 PR 质量细则。
+4. `doc/pr_rule.md` 的 PR 质量细则。
 
 如果目标仓库规则与本地规则不同，优先遵守目标仓库规则，并在记录中写明原因。
 
@@ -63,7 +63,7 @@
 ```text
 <repo-root>
 |-- AGENT.md
-|-- pr_rule.md
+|-- doc/
 |-- README.md
 |-- run-claude-agent.js
 |-- agent.config.example.json
@@ -71,15 +71,13 @@
 |   `-- owner_repo/
 |-- records/             # 每次尝试的记录
 |   `-- owner_repo.md
-|-- notes/               # 临时筛选笔记
-`-- .claude_agent_logs/  # 运行日志，禁止纳入贡献内容
+|-- .claude_agent_logs/  # 运行日志，禁止纳入贡献内容
 ```
 
 硬性要求：
 
 - 开始和结束任务时都检查 `git status --short --branch`。
 - 不要删除因为“暂时没有找到 PR 点”而 clone 下来的候选仓库。
-- 不要把 `.claude_agent_logs/`、`event_state.json`、`event_task.json`、`node_modules/` 等运行产物混入提交。
 - 修改本仓库文档或脚本时，同样遵守最小改动和验证要求。
 - 对目标仓库开发时，不在 `main` / `master` 上直接提交；使用语义化短分支名。
 
@@ -112,10 +110,10 @@ STARTUP
 每次新任务开始时按顺序执行：
 
 1. 确认当前目录是本仓库根目录，或启动脚本时通过 `--cwd` 指向本仓库根目录。
-2. 阅读本文件和 `pr_rule.md`。
+2. 阅读本文件和 `doc/pr_rule.md`。
 3. 确认 `agent.config.json` 或 `PR_AGENT_CONTRIBUTOR_LOGIN` 提供了当前贡献者的 GitHub 登录名。
 4. 检查 `git status --short --branch`，确认本仓库是否已有未处理改动。
-5. 确保 `records/`、`candidates/`、`notes/` 存在；不存在则创建。
+5. 确保 `records/`、`candidates/` 存在；不存在则创建。
 6. 先检查所有 open PR 状态，再开始新的 scout。
 
 检查 open PR 必须以 GitHub 当前数据为准，不能凭记忆：
@@ -189,7 +187,7 @@ gh pr list --repo <owner>/<repo> --search "<issue-number> in:title,body" --state
 - 停止寻找新仓库。
 - 不并行开启第二条 PR 线。
 - 将问题压缩为一个可解释的单点改动。
-- 按 `pr_rule.md` 判断该改动是否值得直接 PR，还是应先开 issue。
+- 按 `doc/pr_rule.md` 判断该改动是否值得直接 PR，还是应先开 issue。
 
 如果无法用三到五句话说明“问题是什么、为什么存在、改了什么、如何验证”，说明目标还不够成熟。
 
@@ -349,7 +347,7 @@ PR 提交后，工作没有结束。
 - 可选开启事件监听。
 - 写入运行日志。
 
-脚本只负责调度和提醒，不替代工程判断。任何修改、提交和 PR 仍必须按本文件与 `pr_rule.md` 执行。
+脚本只负责调度和提醒，不替代工程判断。任何修改、提交和 PR 仍必须按本文件与 `doc/pr_rule.md` 执行。
 
 事件监听的运行规则：
 
@@ -359,7 +357,7 @@ PR 提交后，工作没有结束。
 - `CI_PASSED`、`REVIEW_APPROVED`、`READY_TO_MERGE` 只通知，不写 task。
 - 去重语义是“同 `prKey + type` 的 task 仍存在时不重复建 task”，不是全局唯一。
 - task 成功后会直接从 `event_task.json` 删除：subagent 完成时由成功确认协议触发 launcher 自动删除；主代理亲自处理并确认完成时，可以直接删除对应 task 条目；失败会重试，达到上限后进入 `dead`。
-- 主代理手工删除 task 前，必须先按 `notes/event-task-state-maintenance.md` 更新 `event_state.json` 的 handled baseline；只删除 `event_task.json` 不代表事件已处理，下一次扫描可能重新生成同类 task。
+- 主代理手工删除 task 前，必须先按 `doc/event-task-state-maintenance.md` 更新 `event_state.json` 的 handled baseline；只删除 `event_task.json` 不代表事件已处理，下一次扫描可能重新生成同类 task。
 - `CI_FAILURE`、`REVIEW_CHANGES_REQUESTED`、`NEEDS_REBASE` 这类状态型 task 只有在 GitHub 最新状态里的触发条件消失后才允许清除；如果 subagent 报告成功但触发条件仍存在，应保留 task 并进入重试/`dead` 流程。
 - `pending` / `dead` task 只在底层触发条件仍然成立时继续保留；如果触发条件消失，会在后续扫描中自动回收，不再阻塞 dedupe。
 - 评论 backlog 按 `MAINTAINER_COMMENT`、`BOT_COMMENT`、`NEW_COMMENT` 三类独立跟踪，同一轮扫描里可以并存，不再折叠成单条评论 task。
@@ -397,7 +395,7 @@ PR 提交后，工作没有结束。
 - `commentBaselines.user.reviewCommentCursor`
 - `commentBaselines.user.reviewCursor`
 
-评论 task 成功时，只推进对应 category 的 cursor；其他 category 的 baseline 不会被一并推进。手工维护步骤见 `notes/event-task-state-maintenance.md`。
+评论 task 成功时，只推进对应 category 的 cursor；其他 category 的 baseline 不会被一并推进。手工维护步骤见 `doc/event-task-state-maintenance.md`。
 
 如果运行环境支持 subagent，且任务能独立并行，可用于信息收集、CI 失败调查或多个 PR 状态检查。主代理必须保留最终决策权，并避免多个 agent 同时修改同一工作树。
 

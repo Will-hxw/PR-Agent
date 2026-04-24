@@ -94,9 +94,9 @@ const SEVERITY_ORDER = {
 function buildDefaultPrompt() {
   return [
     "请用 JSON 解析工具读取仓库根目录下的 event_state.json 和 event_task.json，了解当前 PR 状态和未完成任务。",
-    "逐步处理 event_task.json 中的 task；主 Agent 亲自确认某个 task 已完成后，必须先按 notes/event-task-state-maintenance.md 更新 event_state.json，再删除 event_task.json 中的对应 task 条目，然后开始寻找新的 PR 项目。",
+    "逐步处理 event_task.json 中的 task；主 Agent 亲自确认某个 task 已完成后，必须先按 doc/event-task-state-maintenance.md 更新 event_state.json，再删除 event_task.json 中的对应 task 条目，然后开始寻找新的 PR 项目。",
     "请同时维护本仓库的 git 状态；不要在本仓库创建贡献分支，但可以在 candidates/ 中管理具体目标项目的 git。",
-    "请遵守同目录下的 AGENT.md 与 pr_rule.md。",
+    "请遵守同目录下的 AGENT.md 与 doc/pr_rule.md。",
   ].join("\n");
 }
 
@@ -819,12 +819,12 @@ function buildSubagentPrompt(task) {
     JSON.stringify(task.details, null, 2),
     "",
     "处理要求：",
-    "1. 按 AGENT.md 和 pr_rule.md 的 Review / CI 跟进流程处理。",
+    "1. 按 AGENT.md 和 doc/pr_rule.md 的 Review / CI 跟进流程处理。",
     "2. 先重新检查该 PR 的最新状态，再决定是否修改、回复或记录。",
     "3. 如需查看 CI，使用 gh pr checks <number> --repo <owner>/<repo>。",
     `4. 如需回复 inline review comment，必须回复原线程，例如：gh api repos/${owner}/${repo}/pulls/${prNumber}/comments/<comment_id>/replies -X POST -f body='<reply>'`,
     "5. 如需更新记录，只更新与该 PR 直接相关的 records 内容。",
-    "6. 任务/状态文件维护规则见 notes/event-task-state-maintenance.md。",
+    "6. 任务/状态文件维护规则见 doc/event-task-state-maintenance.md。",
     "7. 这是 subagent 任务，不要手动编辑 event_state.json 或 event_task.json；完成后按成功确认协议输出 ack，由 launcher 推进 state 并删除对应 task。",
     "",
     "成功确认协议：",
@@ -2386,10 +2386,10 @@ async function main() {
   const config = parseArgs(process.argv.slice(2));
   const cwd = path.resolve(config.cwd);
   const agentFile = path.join(cwd, "AGENT.md");
-  const ruleFile = path.join(cwd, "pr_rule.md");
+  const ruleFile = path.join(cwd, "doc/pr_rule.md");
 
   ensureFileExists(agentFile, "AGENT.md");
-  ensureFileExists(ruleFile, "pr_rule.md");
+  ensureFileExists(ruleFile, "doc/pr_rule.md");
 
   const logDir = path.join(cwd, config.logDirName);
   ensureDirectoryExists(logDir);
