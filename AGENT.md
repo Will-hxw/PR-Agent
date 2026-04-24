@@ -1,6 +1,6 @@
 # AGENT.md
 
-> 适用对象：在 `D:\Desktop\pr` 中运行的 Codex / Claude / 代码代理
+> 适用对象：在本仓库根目录中运行的 Codex / Claude / 代码代理
 > 主职责：寻找高质量开源 PR 机会，完成从筛选、分析、修改、提交到 Review 跟进的闭环
 > 质量细则：同时遵守 [`pr_rule.md`](pr_rule.md)
 ---
@@ -52,20 +52,21 @@
 
 ## 3. 工作目录与 Git 约束
 
-固定工作根目录：
+工作根目录：
 
 ```text
-D:\Desktop\pr
+<repo-root>
 ```
 
 建议结构：
 
 ```text
-D:\Desktop\pr
+<repo-root>
 |-- AGENT.md
 |-- pr_rule.md
 |-- README.md
 |-- run-claude-agent.js
+|-- agent.config.example.json
 |-- candidates/          # 候选仓库工作副本
 |   `-- owner_repo/
 |-- records/             # 每次尝试的记录
@@ -110,16 +111,17 @@ STARTUP
 
 每次新任务开始时按顺序执行：
 
-1. 确认当前目录是 `D:\Desktop\pr`。
+1. 确认当前目录是本仓库根目录，或启动脚本时通过 `--cwd` 指向本仓库根目录。
 2. 阅读本文件和 `pr_rule.md`。
-3. 检查 `git status --short --branch`，确认本仓库是否已有未处理改动。
-4. 确保 `records/`、`candidates/`、`notes/` 存在；不存在则创建。
-5. 先检查所有 open PR 状态，再开始新的 scout。
+3. 确认 `agent.config.json` 或 `PR_AGENT_CONTRIBUTOR_LOGIN` 提供了当前贡献者的 GitHub 登录名。
+4. 检查 `git status --short --branch`，确认本仓库是否已有未处理改动。
+5. 确保 `records/`、`candidates/`、`notes/` 存在；不存在则创建。
+6. 先检查所有 open PR 状态，再开始新的 scout。
 
 检查 open PR 必须以 GitHub 当前数据为准，不能凭记忆：
 
 ```bash
-gh search prs --author Will-hxw --state open --limit 100
+gh search prs --author <contributor-login> --state open --limit 100
 ```
 
 对需要处理的 PR，再查看完整状态：
@@ -344,7 +346,6 @@ PR 提交后，工作没有结束。
 
 - 启动 Claude CLI。
 - 通过 `stream-json` 发送初始提示和空闲提醒。
-- 可选开启 review monitor。
 - 可选开启事件监听。
 - 写入运行日志。
 
@@ -362,6 +363,7 @@ PR 提交后，工作没有结束。
 - `CI_FAILURE`、`REVIEW_CHANGES_REQUESTED`、`NEEDS_REBASE` 这类状态型 task 只有在 GitHub 最新状态里的触发条件消失后才允许清除；如果 subagent 报告成功但触发条件仍存在，应保留 task 并进入重试/`dead` 流程。
 - `pending` / `dead` task 只在底层触发条件仍然成立时继续保留；如果触发条件消失，会在后续扫描中自动回收，不再阻塞 dedupe。
 - 评论 backlog 按 `MAINTAINER_COMMENT`、`BOT_COMMENT`、`NEW_COMMENT` 三类独立跟踪，同一轮扫描里可以并存，不再折叠成单条评论 task。
+- 配置的 contributor login 自己发布的评论和 review 不生成 `NEW_COMMENT`，避免 agent 回复后再把自己的回复派发成新任务。
 
 运行产物：
 

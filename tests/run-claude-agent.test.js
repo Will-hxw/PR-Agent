@@ -2,6 +2,8 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const path = require("node:path");
 
+process.env.PR_AGENT_CONTRIBUTOR_LOGIN = "example-user";
+
 const agent = require(path.join(__dirname, "..", "run-claude-agent.js"));
 
 function createLogger() {
@@ -151,6 +153,36 @@ test("state-backed trigger helper tracks active PR states", () => {
   })), false);
 });
 
+test("status rollup uses the latest run for each check label", () => {
+  const result = agent.classifyStatusChecks([
+    {
+      workflowName: "pull-request-lint",
+      name: "Require Contributor Statement",
+      status: "COMPLETED",
+      conclusion: "FAILURE",
+      completedAt: "2026-04-24T10:34:27Z",
+    },
+    {
+      workflowName: "pull-request-lint",
+      name: "Require Contributor Statement",
+      status: "COMPLETED",
+      conclusion: "SUCCESS",
+      completedAt: "2026-04-24T14:28:35Z",
+    },
+    {
+      workflowName: "pull-request-lint",
+      name: "Validate PR title",
+      status: "COMPLETED",
+      conclusion: "SUCCESS",
+      completedAt: "2026-04-24T14:28:39Z",
+    },
+  ]);
+
+  assert.equal(result.state, "SUCCESS");
+  assert.equal(result.checkCount, 2);
+  assert.deepStrictEqual(result.failingChecks, []);
+});
+
 test("startup and polling use the same JSON generation path", async () => {
   const listener = createListener();
   const calls = [];
@@ -236,6 +268,49 @@ test("mixed comment batch is split into maintainer bot and user tasks", async ()
   assert.equal(tasksByType.NEW_COMMENT.details.latestActivity.authorLogin, "contributor");
 });
 
+test("own contributor comments do not create comment tasks", async () => {
+  const listener = createListener();
+  await listener._scanSnapshot(makeSnapshot({
+    prKey: "demo/repo#9",
+    issueComments: [
+      makeActivity({
+        id: 500,
+        createdAt: "2026-04-24T00:01:00.000Z",
+        authorLogin: "example-user",
+        body: "my own follow-up",
+      }),
+      makeActivity({
+        id: 501,
+        createdAt: "2026-04-24T00:02:00.000Z",
+        authorLogin: "external-user",
+        body: "external question",
+      }),
+    ],
+  }));
+
+  assert.equal(listener.taskManager.events.length, 1);
+  assert.equal(listener.taskManager.events[0].type, "NEW_COMMENT");
+  assert.deepStrictEqual(
+    listener.taskManager.events[0].details.activities.map((activity) => activity.authorLogin),
+    ["external-user"],
+  );
+
+  const ownOnlyListener = createListener();
+  await ownOnlyListener._scanSnapshot(makeSnapshot({
+    prKey: "demo/repo#10",
+    issueComments: [
+      makeActivity({
+        id: 502,
+        createdAt: "2026-04-24T00:03:00.000Z",
+        authorLogin: "example-user",
+        body: "my own status update",
+      }),
+    ],
+  }));
+
+  assert.equal(ownOnlyListener.taskManager.events.length, 0);
+});
+
 test("collectNewActivities detects replacement comments when count stays the same", () => {
   const snapshot = makeSnapshot({
     prKey: "demo/repo#3",
@@ -270,7 +345,7 @@ test("collectNewActivities detects replacement comments when count stays the sam
 test("open PR search filter ignores PRs in own repositories", () => {
   assert.equal(
     agent.shouldTrackOpenPrSearchItem({
-      repository_url: "https://api.github.com/repos/Will-hxw/servers",
+      repository_url: "https://api.github.com/repos/example-user/servers",
       number: 1,
     }),
     false,
@@ -287,7 +362,7 @@ test("open PR search filter ignores PRs in own repositories", () => {
 
 test("cleanup removes already tracked PRs in own repositories", async () => {
   const listener = createListener();
-  const snapshot = makeSnapshot({ prKey: "Will-hxw/servers#1" });
+  const snapshot = makeSnapshot({ prKey: "example-user/servers#1" });
 
   listener.state.setObservedSnapshot(snapshot.prKey, snapshot);
   listener.taskManager.add(
@@ -365,6 +440,33 @@ test("running tasks are not auto-removed when snapshot no longer matches", async
   assert.equal(listener.taskManager.events.length, 1);
   assert.equal(listener.taskManager.events[0].status, agent.TASK_STATUS.RUNNING);
   assert.equal(listener.taskManager.events[0].details.snapshotSummary, "old-summary");
+});
+
+test("already claimed task is not spawned again", async () => {
+  const listener = createListener();
+  const snapshot = makeSnapshot({
+    prKey: "demo/repo#11",
+    statusCheckState: "FAILED",
+    failingChecks: [{ name: "ci", conclusion: "FAILURE" }],
+  });
+  const task = listener.taskManager.add(
+    snapshot.prKey,
+    "CI_FAILURE",
+    agent.TASK_EVENT_SEVERITY.CI_FAILURE,
+    { snapshotSummary: "old-summary" },
+    agent.buildBoundaryFromSnapshot(snapshot),
+  );
+  listener.taskManager.claim(task.id, 12345);
+
+  let spawnCount = 0;
+  listener._spawnSubagent = () => {
+    spawnCount += 1;
+    throw new Error("should not spawn");
+  };
+
+  await listener._startTask(task);
+
+  assert.equal(spawnCount, 0);
 });
 
 test("pending comment task is refreshed in place instead of duplicated", async () => {

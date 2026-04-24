@@ -9,20 +9,23 @@ const path = require("node:path");
 const os = require("node:os");
 const { randomUUID } = require("node:crypto");
 
-const STATE_FILE = path.join(__dirname, "event_state.json");
-const TASK_FILE = path.join(__dirname, "event_task.json");
-const CONTRIBUTOR_LOGIN = "Will-hxw";
+const ROOT_DIR = __dirname;
+const STATE_FILE = path.join(ROOT_DIR, "event_state.json");
+const TASK_FILE = path.join(ROOT_DIR, "event_task.json");
+const CONFIG_FILE = path.join(ROOT_DIR, "agent.config.json");
+const CONFIG_EXAMPLE_FILE = path.join(ROOT_DIR, "agent.config.example.json");
+const AGENT_CONFIG = loadAgentConfig();
+const CONTRIBUTOR_LOGIN = AGENT_CONFIG.contributorLogin;
 
 const DEFAULTS = {
-  cwd: "D:\\Desktop\\pr",
+  cwd: ROOT_DIR,
   idleSeconds: 300,
   initialDelaySeconds: 8,
   nudgeCooldownSeconds: 30,
   maxNudges: 0,
   claudeCommand: process.platform === "win32" ? "claude.cmd" : "claude",
   effort: "max",
-  prompt:
-    '请用json解析工具理解"D:\\Desktop\\pr\\event_state.json"和"D:\\Desktop\\pr\\event_task.json"，了解当前 PR 状态和未完成任务，逐步一个一个解决D:\\Desktop\\pr\\event_task.json的task；主Agent亲自确认某个task已完成后，必须先按"D:\\Desktop\\pr\\notes\\event-task-state-maintenance.md"更新D:\\Desktop\\pr\\event_state.json，再删除D:\\Desktop\\pr\\event_task.json中的对应task条目，然后开始寻找新的 PR 项目。请同时维护 D:\\Desktop\\pr 的 git（你不可以创建该项目的分支，但是可以在candidates中管理具体项目的git），并遵守同目录下的 AGENT.md 与 pr_rule.md。',
+  prompt: buildDefaultPrompt(),
   logDirName: ".claude_agent_logs",
   showThinking: false,
   showRawEvents: false,
@@ -38,6 +41,7 @@ const TASK_STATUS = {
   RUNNING: "running",
   DEAD: "dead",
 };
+const TERMINAL_TASK_STATUSES = new Set(["success", "succeeded", "completed", "handled", "done"]);
 const TASK_EVENT_SEVERITY = {
   CI_FAILURE: "HEAVY",
   REVIEW_CHANGES_REQUESTED: "HEAVY",
@@ -87,6 +91,49 @@ const SEVERITY_ORDER = {
   INFO: 2,
 };
 
+function buildDefaultPrompt() {
+  return [
+    "请用 JSON 解析工具读取仓库根目录下的 event_state.json 和 event_task.json，了解当前 PR 状态和未完成任务。",
+    "逐步处理 event_task.json 中的 task；主 Agent 亲自确认某个 task 已完成后，必须先按 notes/event-task-state-maintenance.md 更新 event_state.json，再删除 event_task.json 中的对应 task 条目，然后开始寻找新的 PR 项目。",
+    "请同时维护本仓库的 git 状态；不要在本仓库创建贡献分支，但可以在 candidates/ 中管理具体目标项目的 git。",
+    "请遵守同目录下的 AGENT.md 与 pr_rule.md。",
+  ].join("\n");
+}
+
+function normalizeConfiguredLogin(value) {
+  const login = String(value || "").trim();
+  if (!login || login === "YOUR_GITHUB_LOGIN" || /^<.*>$/.test(login)) {
+    return "";
+  }
+  return login;
+}
+
+function loadAgentConfig() {
+  const config = {
+    contributorLogin: normalizeConfiguredLogin(process.env.PR_AGENT_CONTRIBUTOR_LOGIN),
+  };
+
+  if (!config.contributorLogin && fs.existsSync(CONFIG_FILE)) {
+    try {
+      const localConfig = JSON.parse(fs.readFileSync(CONFIG_FILE, "utf8"));
+      config.contributorLogin = normalizeConfiguredLogin(localConfig.contributorLogin);
+    } catch (error) {
+      throw new Error(`无法读取 ${path.basename(CONFIG_FILE)}: ${error.message}`);
+    }
+  }
+
+  return config;
+}
+
+function requireContributorLogin() {
+  if (CONTRIBUTOR_LOGIN) {
+    return CONTRIBUTOR_LOGIN;
+  }
+  throw new Error(
+    `缺少 contributorLogin。请复制 ${path.basename(CONFIG_EXAMPLE_FILE)} 为 ${path.basename(CONFIG_FILE)} 并填写 GitHub 登录名，或设置 PR_AGENT_CONTRIBUTOR_LOGIN。`,
+  );
+}
+
 function parseOwnerRepoFromRepositoryUrl(repositoryUrl) {
   const prefix = "https://api.github.com/repos/";
   const value = String(repositoryUrl || "");
@@ -94,6 +141,9 @@ function parseOwnerRepoFromRepositoryUrl(repositoryUrl) {
 }
 
 function isOwnRepository(ownerRepo) {
+  if (!CONTRIBUTOR_LOGIN) {
+    return false;
+  }
   const owner = String(ownerRepo || "").split("/")[0];
   return owner.toLowerCase() === CONTRIBUTOR_LOGIN.toLowerCase();
 }
@@ -190,6 +240,9 @@ function validateConfig(config) {
     error.exitCode = 2;
     throw error;
   }
+  if (config.enableEventListener) {
+    requireContributorLogin();
+  }
   return config;
 }
 
@@ -215,7 +268,7 @@ function printHelp() {
       "Usage: node run-claude-agent.js [options]",
       "",
       "Options:",
-      "  --cwd <path>                  Claude 工作目录，默认 D:\\Desktop\\pr",
+      "  --cwd <path>                  Claude 工作目录，默认当前仓库根目录",
       "  --idle-seconds <n>            连续无输出多少秒后补发提示，默认 300",
       "  --initial-delay-seconds <n>   启动后等待多久再发送首条提示，默认 8",
       "  --nudge-cooldown-seconds <n>  两次补发之间至少间隔多少秒，默认 30",
@@ -338,6 +391,22 @@ function createLogger(logFilePath) {
       stream.end();
     },
   };
+}
+
+async function writeJsonFileAtomic(filePath, value) {
+  await fsPromises.mkdir(path.dirname(filePath), { recursive: true });
+  const tmpPath = `${filePath}.${process.pid}.${Date.now()}.tmp`;
+  try {
+    await fsPromises.writeFile(tmpPath, `${JSON.stringify(value, null, 2)}\n`, "utf8");
+    await fsPromises.rename(tmpPath, filePath);
+  } catch (error) {
+    try {
+      await fsPromises.unlink(tmpPath);
+    } catch {
+      // Best effort cleanup; preserve the original write failure.
+    }
+    throw error;
+  }
 }
 
 function sleep(ms) {
@@ -576,7 +645,10 @@ function normalizeTaskRecord(raw) {
   }
 
   const now = nowIso();
-  let status = raw.status;
+  let status = String(raw.status || "").toLowerCase();
+  if (TERMINAL_TASK_STATUSES.has(status)) {
+    return null;
+  }
   if (status !== TASK_STATUS.PENDING && status !== TASK_STATUS.RUNNING && status !== TASK_STATUS.DEAD) {
     status = TASK_STATUS.PENDING;
   }
@@ -647,7 +719,17 @@ function isMaintainerActivity(activity) {
   return MAINTAINER_ASSOCIATIONS.has(activity.authorAssociation || "NONE");
 }
 
+function isContributorActivity(activity) {
+  if (!CONTRIBUTOR_LOGIN) {
+    return false;
+  }
+  return String(activity.authorLogin || "").toLowerCase() === CONTRIBUTOR_LOGIN.toLowerCase();
+}
+
 function classifyActivityCategory(activity) {
+  if (isContributorActivity(activity)) {
+    return null;
+  }
   if (isBotActor(activity)) {
     return "bot";
   }
@@ -742,8 +824,8 @@ function buildSubagentPrompt(task) {
     "3. 如需查看 CI，使用 gh pr checks <number> --repo <owner>/<repo>。",
     `4. 如需回复 inline review comment，必须回复原线程，例如：gh api repos/${owner}/${repo}/pulls/${prNumber}/comments/<comment_id>/replies -X POST -f body='<reply>'`,
     "5. 如需更新记录，只更新与该 PR 直接相关的 records 内容。",
-    "6. 任务/状态文件维护规则见 D:\\Desktop\\pr\\notes\\event-task-state-maintenance.md。",
-    "7. 这是 subagent 任务，不要手动编辑 D:\\Desktop\\pr\\event_state.json 或 D:\\Desktop\\pr\\event_task.json；完成后按成功确认协议输出 ack，由 launcher 推进 state 并删除对应 task。",
+    "6. 任务/状态文件维护规则见 notes/event-task-state-maintenance.md。",
+    "7. 这是 subagent 任务，不要手动编辑 event_state.json 或 event_task.json；完成后按成功确认协议输出 ack，由 launcher 推进 state 并删除对应 task。",
     "",
     "成功确认协议：",
     "只有在你确认该事件已经处理完成时，最后单独输出下面这一行，不要放进代码块，不要改写字段：",
@@ -1150,7 +1232,32 @@ function normalizeReview(raw) {
 }
 
 function statusContextLabel(item) {
-  return item.context || item.name || item.__typename || "unknown";
+  if (item.context) {
+    return item.context;
+  }
+  if (item.workflowName && item.name) {
+    return `${item.workflowName} / ${item.name}`;
+  }
+  return item.name || item.__typename || "unknown";
+}
+
+function statusCheckTimestampMs(item) {
+  return parseTimestampMs(item.completedAt || item.startedAt || item.updatedAt || item.createdAt);
+}
+
+function latestStatusChecks(statusCheckRollup) {
+  const latestByLabel = new Map();
+  for (const [index, item] of statusCheckRollup.entries()) {
+    const label = statusContextLabel(item);
+    const timestamp = statusCheckTimestampMs(item);
+    const existing = latestByLabel.get(label);
+    if (!existing || timestamp > existing.timestamp || (timestamp === existing.timestamp && index > existing.index)) {
+      latestByLabel.set(label, { item, timestamp, index });
+    }
+  }
+  return [...latestByLabel.values()]
+    .sort((left, right) => left.index - right.index)
+    .map((entry) => entry.item);
 }
 
 function classifyStatusChecks(statusCheckRollup) {
@@ -1165,8 +1272,9 @@ function classifyStatusChecks(statusCheckRollup) {
 
   const failingChecks = [];
   const pendingChecks = [];
+  const currentChecks = latestStatusChecks(statusCheckRollup);
 
-  for (const item of statusCheckRollup) {
+  for (const item of currentChecks) {
     const rawState = String(item.state || "").toUpperCase();
     const status = String(
       item.status
@@ -1188,7 +1296,7 @@ function classifyStatusChecks(statusCheckRollup) {
       state: "FAILED",
       failingChecks,
       pendingChecks,
-      checkCount: statusCheckRollup.length,
+      checkCount: currentChecks.length,
     };
   }
   if (pendingChecks.length > 0) {
@@ -1196,14 +1304,14 @@ function classifyStatusChecks(statusCheckRollup) {
       state: "PENDING",
       failingChecks,
       pendingChecks,
-      checkCount: statusCheckRollup.length,
+      checkCount: currentChecks.length,
     };
   }
   return {
     state: "SUCCESS",
     failingChecks,
     pendingChecks,
-    checkCount: statusCheckRollup.length,
+    checkCount: currentChecks.length,
   };
 }
 
@@ -1356,19 +1464,21 @@ class EventState {
         Object.entries(obj.prs || {}).map(([prKey, entry]) => [prKey, normalizeStateEntry(prKey, entry)]),
       );
       this.lastSyncAt = obj.lastSyncAt || null;
-    } catch {
+    } catch (error) {
+      if (error.code !== "ENOENT") {
+        throw new Error(`Failed to load ${STATE_FILE}: ${error.message}`);
+      }
       this.prs = new Map();
       this.lastSyncAt = null;
     }
   }
 
   async save() {
-    await fsPromises.mkdir(path.dirname(STATE_FILE), { recursive: true });
     const obj = {
       prs: Object.fromEntries(this.prs),
       lastSyncAt: nowIso(),
     };
-    await fsPromises.writeFile(STATE_FILE, JSON.stringify(obj, null, 2), "utf8");
+    await writeJsonFileAtomic(STATE_FILE, obj);
   }
 
   getOrInit(prKey) {
@@ -1439,14 +1549,16 @@ class EventTaskManager {
       this.events = Array.isArray(obj.events)
         ? obj.events.map(normalizeTaskRecord).filter(Boolean)
         : [];
-    } catch {
+    } catch (error) {
+      if (error.code !== "ENOENT") {
+        throw new Error(`Failed to load ${TASK_FILE}: ${error.message}`);
+      }
       this.events = [];
     }
   }
 
   async save() {
-    await fsPromises.mkdir(path.dirname(TASK_FILE), { recursive: true });
-    await fsPromises.writeFile(TASK_FILE, JSON.stringify({ events: this.events }, null, 2), "utf8");
+    await writeJsonFileAtomic(TASK_FILE, { events: this.events });
   }
 
   resetRunningTasks() {
@@ -1562,6 +1674,7 @@ class EventListener {
     this.loaded = false;
     this._timer = null;
     this._processing = new Set();
+    this._dispatching = false;
     this.activeSubagents = new Map();
     this.terminalPrs = new Set();
   }
@@ -1667,10 +1780,23 @@ class EventListener {
   }
 
   async _fetchOpenPrList() {
-    const raw = await ghApiJson("search/issues?q=author:Will-hxw+is:pr+state:open&per_page=100&sort=updated", {
-      timeoutMs: GH_TIMEOUT_MS,
-    });
-    const items = Array.isArray(raw.items) ? raw.items : [];
+    const contributorLogin = requireContributorLogin();
+    const items = [];
+    for (let page = 1; page <= 10; page += 1) {
+      const raw = await ghApiJson(appendQuery("search/issues", {
+        q: `author:${contributorLogin} is:pr state:open`,
+        per_page: PER_PAGE,
+        page,
+        sort: "updated",
+      }), {
+        timeoutMs: GH_TIMEOUT_MS,
+      });
+      const pageItems = Array.isArray(raw.items) ? raw.items : [];
+      items.push(...pageItems);
+      if (pageItems.length < PER_PAGE) {
+        break;
+      }
+    }
     return items
       .filter(shouldTrackOpenPrSearchItem)
       .map((item) => {
@@ -1890,16 +2016,34 @@ class EventListener {
       return;
     }
 
-    const runnable = this.taskManager.getRunnable();
-    for (const task of runnable) {
-      if (this.activeSubagents.size >= MAX_PARALLEL_SUBAGENTS) {
-        break;
-      }
-      if (this._processing.has(task.prKey) || this.terminalPrs.has(task.prKey)) {
-        continue;
-      }
-      await this._startTask(task);
+    if (this._dispatching) {
+      return;
     }
+
+    this._dispatching = true;
+    try {
+      const runnable = this.taskManager.getRunnable();
+      for (const task of runnable) {
+        if (this.activeSubagents.size >= MAX_PARALLEL_SUBAGENTS) {
+          break;
+        }
+        if (this._processing.has(task.prKey) || this.terminalPrs.has(task.prKey)) {
+          continue;
+        }
+        await this._startTask(task);
+      }
+    } finally {
+      this._dispatching = false;
+    }
+  }
+
+  _spawnSubagent(commandString) {
+    return spawn(commandString, {
+      cwd: this.config.cwd,
+      shell: true,
+      stdio: ["pipe", "pipe", "pipe"],
+      windowsHide: true,
+    });
   }
 
   async _startTask(task) {
@@ -1916,25 +2060,30 @@ class EventListener {
       "max",
     ].join(" ");
 
-    const child = spawn(commandString, {
-      cwd: this.config.cwd,
-      shell: true,
-      stdio: ["pipe", "pipe", "pipe"],
-      windowsHide: true,
-    });
-
-    const claimed = this.taskManager.claim(task.id, child.pid || null);
+    const claimed = this.taskManager.claim(task.id, null);
     if (!claimed) {
       return;
     }
+    task = claimed;
+    this._processing.add(task.prKey);
     await this.taskManager.save();
 
-    this._processing.add(task.prKey);
+    let child;
+    try {
+      child = this._spawnSubagent(commandString);
+    } catch (error) {
+      this._processing.delete(task.prKey);
+      await this._handleTaskFailure(task, `spawn_error: ${error.message}`);
+      return;
+    }
+
+    task.runningPid = child.pid || null;
     this.activeSubagents.set(task.prKey, {
       taskId: task.id,
       pid: child.pid || null,
       startedAt: Date.now(),
     });
+    await this.taskManager.save();
     this.actionLogger.writeLine(`[${nowStamp()}] subagent_spawn pr=${task.prKey} task=${task.id} pid=${child.pid || "unknown"}`);
 
     let stdoutBuffer = "";
@@ -2274,8 +2423,12 @@ async function main() {
     eventNotificationEnabled: config.eventNotificationEnabled,
     enableTaskDispatch: config.enableEventListener,
   }, actionLogger);
-  await eventListener.bootstrapRefresh();
-  actionLogger.writeLine(`[${nowStamp()}] bootstrap_done`);
+  if (config.enableEventListener || CONTRIBUTOR_LOGIN) {
+    await eventListener.bootstrapRefresh();
+    actionLogger.writeLine(`[${nowStamp()}] bootstrap_done`);
+  } else {
+    actionLogger.writeLine(`[${nowStamp()}] bootstrap_skipped reason=missing_contributor_login`);
+  }
 
   const commandString = [
     shellQuote(config.claudeCommand),
@@ -2494,6 +2647,7 @@ if (require.main === module) {
     buildCommentCursorSet,
     buildCursor,
     classifyActivityCategory,
+    classifyStatusChecks,
     collectNewActivities,
     commentCategoryForTaskType,
     compareActivityChronologically,

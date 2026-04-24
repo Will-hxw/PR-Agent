@@ -1,6 +1,6 @@
 # PR Agent
 
-`D:\Desktop\pr` 是一个用于持续寻找、提交和跟进 GitHub 开源 PR 的本地工作区。核心目标是产出小而准确、容易被维护者接受的真实贡献，而不是批量制造低质量 PR。
+PR Agent 是一个用于持续寻找、提交和跟进 GitHub 开源 PR 的本地工作区。核心目标是产出小而准确、容易被维护者接受的真实贡献，而不是批量制造低质量 PR。
 
 ---
 
@@ -21,11 +21,13 @@
 ## 工作区结构
 
 ```text
-D:\Desktop\pr
+<repo-root>
 |-- AGENT.md
 |-- pr_rule.md
 |-- README.md
 |-- run-claude-agent.js
+|-- agent.config.example.json
+|-- LICENSE
 |-- candidates/          # clone 下来的候选仓库
 |-- records/             # 每个项目的尝试记录
 |-- notes/               # agent指导文档
@@ -59,6 +61,43 @@ node --check run-claude-agent.js
 
 ---
 
+## 本地配置
+
+公开仓库不保存个人 GitHub 登录名。首次运行事件监听前，复制示例配置并填写自己的账号：
+
+```bash
+cp agent.config.example.json agent.config.json
+```
+
+Windows PowerShell 可用：
+
+```powershell
+Copy-Item agent.config.example.json agent.config.json
+```
+
+`agent.config.json` 示例：
+
+```json
+{
+  "contributorLogin": "your-github-login"
+}
+```
+
+也可以不创建本地配置文件，改用环境变量：
+
+```bash
+PR_AGENT_CONTRIBUTOR_LOGIN=your-github-login node run-claude-agent.js --enable-event-listener
+```
+
+PowerShell：
+
+```powershell
+$env:PR_AGENT_CONTRIBUTOR_LOGIN = "your-github-login"
+node run-claude-agent.js --enable-event-listener
+```
+
+---
+
 ## 快速启动
 
 最简启动：
@@ -70,7 +109,6 @@ node run-claude-agent.js
 推荐启动事件监听；PR review 和 CI 检查统一通过 event listener 处理：
 ```bash
 node run-claude-agent.js \
-  --cwd "D:\Desktop\pr" \
   --idle-seconds 300 \
   --initial-delay-seconds 8 \
   --nudge-cooldown-seconds 30 \
@@ -101,9 +139,9 @@ node run-claude-agent.js \
 ## PR 目标规则
 
 - 只向 upstream 开源仓库创建 PR，不要向自己的 fork 或个人仓库创建 PR。
-- 如果目标仓库在 `Will-hxw/*` 下，先确认它是否只是 fork；fork 内部 PR 不会把改动送到上游，不能作为开源贡献结果记录。
-- 正确流程是把分支 push 到自己的 fork，然后用 `gh pr create --repo <upstream-owner>/<upstream-repo> --head Will-hxw:<branch-name>` 向 upstream 创建 PR。
-- 事件监听生成 `event_state.json` / `event_task.json` 时会跳过 `Will-hxw/*` 仓库的 open PR，避免把自己的 fork PR 纳入 review / CI 跟进队列。
+- 如果目标仓库在 `<contributor-login>/*` 下，先确认它是否只是 fork；fork 内部 PR 不会把改动送到上游，不能作为开源贡献结果记录。
+- 正确流程是把分支 push 到自己的 fork，然后用 `gh pr create --repo <upstream-owner>/<upstream-repo> --head <fork-owner>:<branch-name>` 向 upstream 创建 PR。
+- 事件监听生成 `event_state.json` / `event_task.json` 时会跳过 `agent.config.json` 中 `contributorLogin` 名下的 open PR，避免把自己的 fork PR 纳入 review / CI 跟进队列。
 
 ---
 
@@ -113,7 +151,7 @@ node run-claude-agent.js \
 
 | 参数 | 默认值 | 说明 |
 |---|---:|---|
-| `--cwd` | `D:\Desktop\pr` | Claude 工作目录 |
+| `--cwd` | 当前仓库根目录 | Claude 工作目录 |
 | `--prompt` | 内置提示 | 发送给 Claude 的初始提示和后续提醒内容 |
 | `--claude-command` | Windows: `claude.cmd`；其他平台: `claude` | Claude CLI 命令 |
 | `--effort` | `max` | Claude 思考强度：`low` / `middle` / `high` / `xhigh` / `max` |
@@ -166,6 +204,7 @@ node run-claude-agent.js \
 - `CI_FAILURE`、`REVIEW_CHANGES_REQUESTED`、`NEEDS_REBASE` 这类状态型 task 只有在 GitHub 最新状态里的触发条件消失后才允许清除；如果 subagent 报告成功但触发条件仍存在，应保留 task 并进入重试/`dead` 流程。
 - 成功后的状态刷新以 GitHub 最新数据为准；评论类 cursor 只推进到 task 创建时的 boundary，然后立即对该 PR 局部重扫，避免吞掉处理中途到达的新评论。
 - 评论 backlog 按 `MAINTAINER_COMMENT`、`BOT_COMMENT`、`NEW_COMMENT` 三类独立跟踪，同一轮扫描里最多可并存三条评论 task。
+- 配置的 contributor login 自己发布的评论和 review 不生成 `NEW_COMMENT`，避免 agent 回复后再把自己的回复派发成新任务。
 
 具体处理流程以 `AGENT.md` 的 Review / CI 跟进规则和 `notes/event-task-state-maintenance.md` 的状态维护规则为准。
 
@@ -176,7 +215,7 @@ node run-claude-agent.js \
 日志写入：
 
 ```text
-D:\Desktop\pr\.claude_agent_logs\
+<repo-root>/.claude_agent_logs/
 |-- claude_stream_YYYYMMDD_HHMMSS.jsonl
 `-- claude_actions_YYYYMMDD_HHMMSS.log
 ```
@@ -184,8 +223,8 @@ D:\Desktop\pr\.claude_agent_logs\
 事件监听状态写入工作区根目录：
 
 ```text
-D:\Desktop\pr\event_state.json
-D:\Desktop\pr\event_task.json
+<repo-root>/event_state.json
+<repo-root>/event_task.json
 ```
 
 这些文件是本地运行状态，已由 `.gitignore` 忽略。
@@ -248,8 +287,9 @@ D:\Desktop\pr\event_task.json
 获取当前账号所有 upstream open PR：
 
 ```powershell
-(gh search prs --author Will-hxw --state open --limit 100 --json repository,number,url | ConvertFrom-Json) |
-  Where-Object { $_.repository.nameWithOwner -notlike 'Will-hxw/*' } |
+$login = if ($env:PR_AGENT_CONTRIBUTOR_LOGIN) { $env:PR_AGENT_CONTRIBUTOR_LOGIN } else { (Get-Content agent.config.json | ConvertFrom-Json).contributorLogin }
+(gh search prs --author $login --state open --limit 100 --json repository,number,url | ConvertFrom-Json) |
+  Where-Object { $_.repository.nameWithOwner -notlike "$login/*" } |
   Select-Object number,url,@{Name='repository';Expression={$_.repository.nameWithOwner}}
 ```
 
@@ -290,7 +330,7 @@ git push origin <branch-name>
 gh pr create --repo <owner>/<repo> --base <base-branch> --head <fork-owner>:<branch-name> --title "<title>" --body "<body>"
 ```
 
-这里的 `<owner>/<repo>` 必须是 upstream 仓库，不是 `Will-hxw/*` fork。
+这里的 `<owner>/<repo>` 必须是 upstream 仓库，不是 `<contributor-login>/*` fork。
 
 ---
 
@@ -300,3 +340,7 @@ gh pr create --repo <owner>/<repo> --base <base-branch> --head <fork-owner>:<bra
 - 修改 PR 质量标准时先改 `pr_rule.md`。
 - 修改脚本参数或启动方式时同步更新本 README。
 - 文档命令必须能真实执行，不保留已知错误命令。
+
+## 许可证
+
+本项目使用 MIT License，见 [`LICENSE`](LICENSE)。
