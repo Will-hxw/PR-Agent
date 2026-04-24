@@ -51,6 +51,7 @@ const TASK_EVENT_TYPES = new Set(Object.keys(TASK_EVENT_SEVERITY));
 const INFO_ONLY_EVENT_TYPES = new Set(["CI_PASSED", "REVIEW_APPROVED"]);
 const COMMENT_TASK_TYPES = new Set(["MAINTAINER_COMMENT", "BOT_COMMENT", "NEW_COMMENT"]);
 const MERGE_TASK_TYPES = new Set(["NEEDS_REBASE", "READY_TO_MERGE"]);
+const STATE_BACKED_TASK_TYPES = new Set(["CI_FAILURE", "REVIEW_CHANGES_REQUESTED", ...MERGE_TASK_TYPES]);
 const COMMENT_CATEGORIES = ["maintainer", "bot", "user"];
 const COMMENT_TASK_TYPE_BY_CATEGORY = Object.freeze({
   maintainer: "MAINTAINER_COMMENT",
@@ -826,25 +827,6 @@ function collectNewActivities(snapshot, baseline, category = null) {
   };
 }
 
-function baselineNeedsRebase(baseline) {
-  if (!baseline) return false;
-  return isNeedsRebaseFromRaw({
-    mergeStateStatus: baseline.mergeStateStatus,
-    mergeable: baseline.mergeable,
-  });
-}
-
-function baselineReadyToMerge(baseline) {
-  if (!baseline) return false;
-  return isReadyToMergeFromRaw({
-    isDraft: baseline.isDraft,
-    reviewDecision: baseline.reviewDecision,
-    statusCheckState: baseline.statusCheckState,
-    mergeable: baseline.mergeable,
-    unresolvedReviewThreadCount: baseline.unresolvedReviewThreadCount,
-  });
-}
-
 function isNeedsRebaseFromRaw(raw) {
   const mergeStateStatus = raw.mergeStateStatus || null;
   const mergeable = raw.mergeable || null;
@@ -857,6 +839,50 @@ function isReadyToMergeFromRaw(raw) {
     && raw.statusCheckState === "SUCCESS"
     && raw.mergeable === "MERGEABLE"
     && Number(raw.unresolvedReviewThreadCount || 0) === 0;
+}
+
+function isTaskTriggerActive(type, snapshot) {
+  if (!snapshot) {
+    return false;
+  }
+  if (type === "CI_FAILURE") {
+    return snapshot.statusCheckState === "FAILED";
+  }
+  if (type === "REVIEW_CHANGES_REQUESTED") {
+    return snapshot.reviewDecision === "CHANGES_REQUESTED";
+  }
+  if (type === "NEEDS_REBASE") {
+    return isNeedsRebaseFromRaw(snapshot);
+  }
+  if (type === "READY_TO_MERGE") {
+    return isReadyToMergeFromRaw(snapshot);
+  }
+  return false;
+}
+
+function describeActiveTaskTrigger(type, snapshot) {
+  const parts = [`post_success_trigger_still_active:${type}`];
+  if (snapshot?.headSha) {
+    parts.push(`head=${snapshot.headSha}`);
+  }
+  if (type === "CI_FAILURE") {
+    const checks = (snapshot.failingChecks || [])
+      .map((check) => check.label || check.name || "unknown")
+      .join(",");
+    parts.push(`statusCheckState=${snapshot.statusCheckState || "unknown"}`);
+    if (checks) {
+      parts.push(`failingChecks=${checks}`);
+    }
+  } else if (type === "REVIEW_CHANGES_REQUESTED") {
+    parts.push(`reviewDecision=${snapshot.reviewDecision || "unknown"}`);
+  } else if (type === "NEEDS_REBASE") {
+    parts.push(`mergeStateStatus=${snapshot.mergeStateStatus || "unknown"}`);
+    parts.push(`mergeable=${snapshot.mergeable || "unknown"}`);
+  } else if (type === "READY_TO_MERGE") {
+    parts.push(`reviewDecision=${snapshot.reviewDecision || "unknown"}`);
+    parts.push(`mergeStateStatus=${snapshot.mergeStateStatus || "unknown"}`);
+  }
+  return parts.join(" ");
 }
 
 function extractAckFromTextBuffer(bufferHolder, task) {
@@ -1706,7 +1732,7 @@ class EventListener {
     const fullBoundary = buildBoundaryFromSnapshot(snapshot);
     const candidateTasks = new Map();
 
-    if (snapshot.statusCheckState === "FAILED" && baseline.statusCheckState !== "FAILED") {
+    if (isTaskTriggerActive("CI_FAILURE", snapshot)) {
       candidateTasks.set("CI_FAILURE", {
         type: "CI_FAILURE",
         severity: TASK_EVENT_SEVERITY.CI_FAILURE,
@@ -1717,7 +1743,7 @@ class EventListener {
       });
     }
 
-    if (snapshot.reviewDecision === "CHANGES_REQUESTED" && baseline.reviewDecision !== "CHANGES_REQUESTED") {
+    if (isTaskTriggerActive("REVIEW_CHANGES_REQUESTED", snapshot)) {
       candidateTasks.set("REVIEW_CHANGES_REQUESTED", {
         type: "REVIEW_CHANGES_REQUESTED",
         severity: TASK_EVENT_SEVERITY.REVIEW_CHANGES_REQUESTED,
@@ -1749,7 +1775,7 @@ class EventListener {
     }
 
     const currentNeedsRebase = isNeedsRebaseFromRaw(snapshot);
-    if (currentNeedsRebase && !baselineNeedsRebase(baseline)) {
+    if (currentNeedsRebase) {
       candidateTasks.set("NEEDS_REBASE", {
         type: "NEEDS_REBASE",
         severity: TASK_EVENT_SEVERITY.NEEDS_REBASE,
@@ -1762,7 +1788,7 @@ class EventListener {
     }
 
     const currentReadyToMerge = isReadyToMergeFromRaw(snapshot);
-    if (currentReadyToMerge && !baselineReadyToMerge(baseline)) {
+    if (currentReadyToMerge) {
       candidateTasks.set("READY_TO_MERGE", {
         type: "READY_TO_MERGE",
         severity: TASK_EVENT_SEVERITY.READY_TO_MERGE,
@@ -2079,6 +2105,17 @@ class EventListener {
       });
     } catch (error) {
       await this._handleTaskFailure(task, `post_success_refresh_failed: ${error.message}`);
+      return;
+    }
+
+    if (STATE_BACKED_TASK_TYPES.has(task.type) && isTaskTriggerActive(task.type, refreshedSnapshot)) {
+      await this._handleTaskFailure(task, describeActiveTaskTrigger(task.type, refreshedSnapshot));
+      try {
+        await this._scanSnapshot(refreshedSnapshot);
+        await this.saveAll();
+      } catch (error) {
+        this.actionLogger.writeLine(`[${nowStamp()}] post_unresolved_rescan_failed pr=${task.prKey} task=${task.id} err=${truncate(error.message || error, 300)}`);
+      }
       return;
     }
 
@@ -2482,6 +2519,7 @@ if (require.main === module) {
     emptyCommentBaselines,
     emptyCommentCursorSet,
     emptyCursor,
+    isTaskTriggerActive,
     isNeedsRebaseFromRaw,
     isReadyToMergeFromRaw,
     isOwnRepositoryPrKey,

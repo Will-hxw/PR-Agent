@@ -161,6 +161,7 @@ node run-claude-agent.js \
 - 只要 `event_task.json` 中仍存在同 `prKey + type` 的 task，就视为去重命中，不会重复建 task。
 - task 成功后直接从 `event_task.json` 删除，不保留 handled 历史项。
 - task 失败最多自动尝试 5 次；超过上限后变成 `dead`。`dead` 只在底层触发条件仍然存在时继续阻塞同类事件；如果触发条件消失，会在后续扫描中自动回收。
+- `CI_FAILURE`、`REVIEW_CHANGES_REQUESTED`、`NEEDS_REBASE`、`READY_TO_MERGE` 这类状态型 task 只有在 GitHub 最新状态里的触发条件消失后才允许清除；如果 subagent 报告成功但触发条件仍存在，应保留 task 并进入重试/`dead` 流程。
 - 成功后的状态刷新以 GitHub 最新数据为准；评论类 cursor 只推进到 task 创建时的 boundary，然后立即对该 PR 局部重扫，避免吞掉处理中途到达的新评论。
 - 评论 backlog 按 `MAINTAINER_COMMENT`、`BOT_COMMENT`、`NEW_COMMENT` 三类独立跟踪，同一轮扫描里最多可并存三条评论 task。
 

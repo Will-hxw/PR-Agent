@@ -118,6 +118,39 @@ test("stale pending and dead tasks are removed when trigger disappears", async (
   assert.equal(listener.taskManager.events.length, 0);
 });
 
+test("active state-backed triggers create tasks even when baseline already saw them", async () => {
+  const listener = createListener();
+  const failedSnapshot = makeSnapshot({
+    prKey: "demo/repo#7",
+    statusCheckState: "FAILED",
+    failingChecks: [{ label: "Require Contributor Statement", conclusion: "FAILURE" }],
+  });
+  const entry = listener.state.getOrInit(failedSnapshot.prKey);
+  entry.baseline = agent.baselineFromSnapshot(failedSnapshot);
+  entry.observed = agent.baselineFromSnapshot(failedSnapshot);
+
+  await listener._scanSnapshot(failedSnapshot);
+
+  assert.deepStrictEqual(listener.taskManager.events.map((event) => event.type), ["CI_FAILURE"]);
+});
+
+test("state-backed trigger helper tracks active PR states", () => {
+  assert.equal(agent.isTaskTriggerActive("CI_FAILURE", makeSnapshot({ statusCheckState: "FAILED" })), true);
+  assert.equal(agent.isTaskTriggerActive("CI_FAILURE", makeSnapshot({ statusCheckState: "SUCCESS" })), false);
+  assert.equal(agent.isTaskTriggerActive("REVIEW_CHANGES_REQUESTED", makeSnapshot({
+    reviewDecision: "CHANGES_REQUESTED",
+  })), true);
+  assert.equal(agent.isTaskTriggerActive("NEEDS_REBASE", makeSnapshot({
+    mergeStateStatus: "BEHIND",
+  })), true);
+  assert.equal(agent.isTaskTriggerActive("READY_TO_MERGE", makeSnapshot({
+    reviewDecision: "APPROVED",
+    statusCheckState: "SUCCESS",
+    mergeable: "MERGEABLE",
+    unresolvedReviewThreadCount: 0,
+  })), true);
+});
+
 test("mixed comment batch is split into maintainer bot and user tasks", async () => {
   const listener = createListener();
   const snapshot = makeSnapshot({

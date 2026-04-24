@@ -357,6 +357,7 @@ PR 提交后，工作没有结束。
 - `CI_PASSED`、`REVIEW_APPROVED` 只通知，不写 task。
 - 去重语义是“同 `prKey + type` 的 task 仍存在时不重复建 task”，不是全局唯一。
 - task 成功后会直接从 `event_task.json` 删除；失败会重试，达到上限后进入 `dead`。
+- `CI_FAILURE`、`REVIEW_CHANGES_REQUESTED`、`NEEDS_REBASE`、`READY_TO_MERGE` 这类状态型 task 只有在 GitHub 最新状态里的触发条件消失后才允许清除；如果 subagent 报告成功但触发条件仍存在，应保留 task 并进入重试/`dead` 流程。
 - `pending` / `dead` task 只在底层触发条件仍然成立时继续保留；如果触发条件消失，会在后续扫描中自动回收，不再阻塞 dedupe。
 - 评论 backlog 按 `MAINTAINER_COMMENT`、`BOT_COMMENT`、`NEW_COMMENT` 三类独立跟踪，同一轮扫描里可以并存，不再折叠成单条评论 task。
 
