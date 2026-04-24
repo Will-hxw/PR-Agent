@@ -6,13 +6,13 @@
       "type": "CI_FAILURE",
       "severity": "HEAVY",
       "createdAt": "2026-04-24T14:28:01.343Z",
-      "status": "pending",
-      "attemptCount": 1,
-      "lastAttemptAt": "2026-04-24T14:29:16.669Z",
-      "nextRetryAt": "2026-04-24T14:34:36.817Z",
+      "status": "running",
+      "attemptCount": 2,
+      "lastAttemptAt": "2026-04-24T15:54:33.775Z",
+      "nextRetryAt": null,
       "lastError": null,
-      "claimedAt": null,
-      "runningPid": null,
+      "claimedAt": "2026-04-24T15:54:33.775Z",
+      "runningPid": 21460,
       "boundary": {
         "issueCommentCursor": {
           "count": 1,
@@ -38,12 +38,7 @@
         "headSha": "5d912dab3222239547f0499e1f0bec069b5e0d97",
         "failingChecks": [
           {
-            "label": "label",
-            "status": "COMPLETED",
-            "conclusion": "FAILURE"
-          },
-          {
-            "label": "label",
+            "label": "Label PR / label",
             "status": "COMPLETED",
             "conclusion": "FAILURE"
           }
@@ -124,13 +119,13 @@
       "type": "BOT_COMMENT",
       "severity": "LIGHT",
       "createdAt": "2026-04-24T14:28:12.203Z",
-      "status": "pending",
-      "attemptCount": 0,
-      "lastAttemptAt": null,
-      "nextRetryAt": "2026-04-24T14:28:12.203Z",
+      "status": "running",
+      "attemptCount": 1,
+      "lastAttemptAt": "2026-04-24T15:54:33.785Z",
+      "nextRetryAt": null,
       "lastError": null,
-      "claimedAt": null,
-      "runningPid": null,
+      "claimedAt": "2026-04-24T15:54:33.785Z",
+      "runningPid": 45112,
       "boundary": {
         "issueCommentCursor": {
           "count": 0,
@@ -260,195 +255,6 @@
           "state": "COMMENTED",
           "url": "https://github.com/browser-use/browser-harness/pull/122#pullrequestreview-4138233237",
           "excerpt": "**1 issue found across 6 files (changes from recent commits).** <details> <summary>Prompt for AI agents (unresolved issues)</summary> ```text Check if these issues are valid — if so, understand the..."
-        }
-      }
-    },
-    {
-      "id": "3fdf823a-ef2c-477c-9b75-f3486c8afec5",
-      "prKey": "browser-use/browser-harness#122",
-      "type": "NEW_COMMENT",
-      "severity": "LIGHT",
-      "createdAt": "2026-04-24T14:28:12.214Z",
-      "status": "pending",
-      "attemptCount": 0,
-      "lastAttemptAt": null,
-      "nextRetryAt": "2026-04-24T14:28:12.214Z",
-      "lastError": null,
-      "claimedAt": null,
-      "runningPid": null,
-      "boundary": {
-        "issueCommentCursor": {
-          "count": 0,
-          "lastId": null,
-          "lastCreatedAt": null
-        },
-        "reviewCommentCursor": {
-          "count": 6,
-          "lastId": "3109590486",
-          "lastCreatedAt": "2026-04-20T09:24:42Z"
-        },
-        "reviewCursor": {
-          "count": 6,
-          "lastId": "4138775068",
-          "lastCreatedAt": "2026-04-20T09:24:42Z"
-        },
-        "snapshotUpdatedAt": "2026-04-24T12:39:00Z"
-      },
-      "details": {
-        "prUrl": "https://github.com/browser-use/browser-harness/pull/122",
-        "snapshotSummary": "PR URL: https://github.com/browser-use/browser-harness/pull/122\nHead SHA: 4fba91ac3423bf1825a81654270320536c059582\nCI: SUCCESS\nReview decision: NONE\nMerge state: CLEAN\nMergeable: MERGEABLE\nDraft: no\nUnresolved review threads: 0\nIssue comments: 0\nReview comments: 12\nReviews: 8",
-        "snapshotUpdatedAt": "2026-04-24T12:39:00Z",
-        "headSha": "4fba91ac3423bf1825a81654270320536c059582",
-        "activities": [
-          {
-            "stream": "review_comment",
-            "id": "3109579776",
-            "createdAt": "2026-04-20T09:23:13Z",
-            "authorLogin": "Will-hxw",
-            "authorType": "User",
-            "authorAssociation": "NONE",
-            "state": null,
-            "url": "https://github.com/browser-use/browser-harness/pull/122#discussion_r3109579776",
-            "excerpt": "Fixed in 018a605. I kept the Unix socket itself under `/tmp` for pathname-length reasons, but moved the writable daemon metadata out of shared `/tmp`: - Unix transport now writes `pid` / `log` into..."
-          },
-          {
-            "stream": "review",
-            "id": "4138762830",
-            "createdAt": "2026-04-20T09:23:13Z",
-            "authorLogin": "Will-hxw",
-            "authorType": "User",
-            "authorAssociation": "NONE",
-            "state": "COMMENTED",
-            "url": "https://github.com/browser-use/browser-harness/pull/122#pullrequestreview-4138762830",
-            "excerpt": ""
-          },
-          {
-            "stream": "review_comment",
-            "id": "3109590439",
-            "createdAt": "2026-04-20T09:24:42Z",
-            "authorLogin": "Will-hxw",
-            "authorType": "User",
-            "authorAssociation": "NONE",
-            "state": null,
-            "url": "https://github.com/browser-use/browser-harness/pull/122#discussion_r3109590439",
-            "excerpt": "Fixed in 7a57a5e. The PowerShell example now uses a PowerShell here-string piped into `browser-harness`, so the documented Windows command is executable as written instead of relying on Bash heredo..."
-          },
-          {
-            "stream": "review_comment",
-            "id": "3109590443",
-            "createdAt": "2026-04-20T09:24:42Z",
-            "authorLogin": "Will-hxw",
-            "authorType": "User",
-            "authorAssociation": "NONE",
-            "state": null,
-            "url": "https://github.com/browser-use/browser-harness/pull/122#discussion_r3109590443",
-            "excerpt": "Fixed in 7a57a5e. The TCP probe path now treats unreadable port metadata the same way as missing or invalid metadata by catching the broader file-read failure path (`OSError` as well as parse error..."
-          },
-          {
-            "stream": "review_comment",
-            "id": "3109590450",
-            "createdAt": "2026-04-20T09:24:42Z",
-            "authorLogin": "Will-hxw",
-            "authorType": "User",
-            "authorAssociation": "NONE",
-            "state": null,
-            "url": "https://github.com/browser-use/browser-harness/pull/122#discussion_r3109590450",
-            "excerpt": "Fixed in 7a57a5e. Liveness and restart now probe all supported transports for the same `BU_NAME` before spawning or cleaning up. That prevents two daemons with the same name from coexisting across ..."
-          },
-          {
-            "stream": "review_comment",
-            "id": "3109590451",
-            "createdAt": "2026-04-20T09:24:42Z",
-            "authorLogin": "Will-hxw",
-            "authorType": "User",
-            "authorAssociation": "NONE",
-            "state": null,
-            "url": "https://github.com/browser-use/browser-harness/pull/122#discussion_r3109590451",
-            "excerpt": "Fixed in 7a57a5e. `_paths()` no longer uses `Path.with_suffix()`. It now builds the artifact names explicitly, so daemon names containing dots (for example `foo.bar`) keep distinct socket / pid / p..."
-          },
-          {
-            "stream": "review_comment",
-            "id": "3109590486",
-            "createdAt": "2026-04-20T09:24:42Z",
-            "authorLogin": "Will-hxw",
-            "authorType": "User",
-            "authorAssociation": "NONE",
-            "state": null,
-            "url": "https://github.com/browser-use/browser-harness/pull/122#discussion_r3109590486",
-            "excerpt": "Fixed in 7a57a5e, with a follow-up refinement in 018a605. The Unix socket path is back under `/tmp` so it stays within the AF_UNIX pathname limit. The later security follow-up only moved the writab..."
-          },
-          {
-            "stream": "review",
-            "id": "4138775015",
-            "createdAt": "2026-04-20T09:24:42Z",
-            "authorLogin": "Will-hxw",
-            "authorType": "User",
-            "authorAssociation": "NONE",
-            "state": "COMMENTED",
-            "url": "https://github.com/browser-use/browser-harness/pull/122#pullrequestreview-4138775015",
-            "excerpt": ""
-          },
-          {
-            "stream": "review",
-            "id": "4138775020",
-            "createdAt": "2026-04-20T09:24:42Z",
-            "authorLogin": "Will-hxw",
-            "authorType": "User",
-            "authorAssociation": "NONE",
-            "state": "COMMENTED",
-            "url": "https://github.com/browser-use/browser-harness/pull/122#pullrequestreview-4138775020",
-            "excerpt": ""
-          },
-          {
-            "stream": "review",
-            "id": "4138775029",
-            "createdAt": "2026-04-20T09:24:42Z",
-            "authorLogin": "Will-hxw",
-            "authorType": "User",
-            "authorAssociation": "NONE",
-            "state": "COMMENTED",
-            "url": "https://github.com/browser-use/browser-harness/pull/122#pullrequestreview-4138775029",
-            "excerpt": ""
-          },
-          {
-            "stream": "review",
-            "id": "4138775031",
-            "createdAt": "2026-04-20T09:24:42Z",
-            "authorLogin": "Will-hxw",
-            "authorType": "User",
-            "authorAssociation": "NONE",
-            "state": "COMMENTED",
-            "url": "https://github.com/browser-use/browser-harness/pull/122#pullrequestreview-4138775031",
-            "excerpt": ""
-          },
-          {
-            "stream": "review",
-            "id": "4138775068",
-            "createdAt": "2026-04-20T09:24:42Z",
-            "authorLogin": "Will-hxw",
-            "authorType": "User",
-            "authorAssociation": "NONE",
-            "state": "COMMENTED",
-            "url": "https://github.com/browser-use/browser-harness/pull/122#pullrequestreview-4138775068",
-            "excerpt": ""
-          }
-        ],
-        "activityCount": 12,
-        "streamCounts": {
-          "issueComments": 0,
-          "reviewComments": 6,
-          "reviews": 6
-        },
-        "latestActivity": {
-          "stream": "review",
-          "id": "4138775068",
-          "createdAt": "2026-04-20T09:24:42Z",
-          "authorLogin": "Will-hxw",
-          "authorType": "User",
-          "authorAssociation": "NONE",
-          "state": "COMMENTED",
-          "url": "https://github.com/browser-use/browser-harness/pull/122#pullrequestreview-4138775068",
-          "excerpt": ""
         }
       }
     },
@@ -598,253 +404,16 @@
       }
     },
     {
-      "id": "b45ddceb-9cb8-4f92-8482-2de9ded5a228",
-      "prKey": "appsmithorg/appsmith#41752",
-      "type": "NEW_COMMENT",
-      "severity": "LIGHT",
-      "createdAt": "2026-04-24T14:28:22.457Z",
-      "status": "pending",
-      "attemptCount": 0,
-      "lastAttemptAt": null,
-      "nextRetryAt": "2026-04-24T14:28:22.457Z",
-      "lastError": null,
-      "claimedAt": null,
-      "runningPid": null,
-      "boundary": {
-        "issueCommentCursor": {
-          "count": 0,
-          "lastId": null,
-          "lastCreatedAt": null
-        },
-        "reviewCommentCursor": {
-          "count": 2,
-          "lastId": "3137594137",
-          "lastCreatedAt": "2026-04-24T12:14:21Z"
-        },
-        "reviewCursor": {
-          "count": 2,
-          "lastId": "4170318770",
-          "lastCreatedAt": "2026-04-24T12:14:21Z"
-        },
-        "snapshotUpdatedAt": "2026-04-24T12:14:28Z"
-      },
-      "details": {
-        "prUrl": "https://github.com/appsmithorg/appsmith/pull/41752",
-        "snapshotSummary": "PR URL: https://github.com/appsmithorg/appsmith/pull/41752\nHead SHA: b3109898bf33b6dbc0ed337ea4033cf44b192726\nCI: SUCCESS\nReview decision: REVIEW_REQUIRED\nMerge state: BLOCKED\nMergeable: MERGEABLE\nDraft: no\nUnresolved review threads: 2\nIssue comments: 1\nReview comments: 6\nReviews: 5",
-        "snapshotUpdatedAt": "2026-04-24T12:14:28Z",
-        "headSha": "b3109898bf33b6dbc0ed337ea4033cf44b192726",
-        "activities": [
-          {
-            "stream": "review_comment",
-            "id": "3137593650",
-            "createdAt": "2026-04-24T12:14:16Z",
-            "authorLogin": "Will-hxw",
-            "authorType": "User",
-            "authorAssociation": "NONE",
-            "state": null,
-            "url": "https://github.com/appsmithorg/appsmith/pull/41752#discussion_r3137593650",
-            "excerpt": "感谢审查。这些是有效的测试质量建议： - 用确定性等待替代 Sleep 是正确方向 - 使用 data-* 选择器和自动重试断言确实更健壮 当前 PR 聚焦于日期选择器条件行为的核心功能实现。测试改进（locator 变量和自动重试断言）可在后续 follow-up 中统一处理，以保持当前 PR 范围聚焦。"
-          },
-          {
-            "stream": "review",
-            "id": "4170318242",
-            "createdAt": "2026-04-24T12:14:16Z",
-            "authorLogin": "Will-hxw",
-            "authorType": "User",
-            "authorAssociation": "NONE",
-            "state": "COMMENTED",
-            "url": "https://github.com/appsmithorg/appsmith/pull/41752#pullrequestreview-4170318242",
-            "excerpt": ""
-          },
-          {
-            "stream": "review_comment",
-            "id": "3137594137",
-            "createdAt": "2026-04-24T12:14:21Z",
-            "authorLogin": "Will-hxw",
-            "authorType": "User",
-            "authorAssociation": "NONE",
-            "state": null,
-            "url": "https://github.com/appsmithorg/appsmith/pull/41752#discussion_r3137594137",
-            "excerpt": "确认收到。建议的方向正确——使用稳定的 locator 变量和自动重试断言替代手动 DOM 查询模式。将在后续测试优化 PR 中采用此改进。"
-          },
-          {
-            "stream": "review",
-            "id": "4170318770",
-            "createdAt": "2026-04-24T12:14:21Z",
-            "authorLogin": "Will-hxw",
-            "authorType": "User",
-            "authorAssociation": "NONE",
-            "state": "COMMENTED",
-            "url": "https://github.com/appsmithorg/appsmith/pull/41752#pullrequestreview-4170318770",
-            "excerpt": ""
-          }
-        ],
-        "activityCount": 4,
-        "streamCounts": {
-          "issueComments": 0,
-          "reviewComments": 2,
-          "reviews": 2
-        },
-        "latestActivity": {
-          "stream": "review",
-          "id": "4170318770",
-          "createdAt": "2026-04-24T12:14:21Z",
-          "authorLogin": "Will-hxw",
-          "authorType": "User",
-          "authorAssociation": "NONE",
-          "state": "COMMENTED",
-          "url": "https://github.com/appsmithorg/appsmith/pull/41752#pullrequestreview-4170318770",
-          "excerpt": ""
-        }
-      }
-    },
-    {
-      "id": "94417ec9-7467-4cfd-b9b2-e09efcf40f8a",
-      "prKey": "lgazo/drawio-mcp-server#51",
-      "type": "MAINTAINER_COMMENT",
-      "severity": "HEAVY",
-      "createdAt": "2026-04-24T14:28:24.576Z",
-      "status": "success",
-      "attemptCount": 1,
-      "lastAttemptAt": "2026-04-24T14:50:00.000Z",
-      "nextRetryAt": null,
-      "lastError": null,
-      "claimedAt": null,
-      "runningPid": null,
-      "boundary": {
-        "issueCommentCursor": {
-          "count": 1,
-          "lastId": "4291187578",
-          "lastCreatedAt": "2026-04-21T19:19:32Z"
-        },
-        "reviewCommentCursor": {
-          "count": 0,
-          "lastId": null,
-          "lastCreatedAt": null
-        },
-        "reviewCursor": {
-          "count": 0,
-          "lastId": null,
-          "lastCreatedAt": null
-        },
-        "snapshotUpdatedAt": "2026-04-24T12:02:09Z"
-      },
-      "details": {
-        "prUrl": "https://github.com/lgazo/drawio-mcp-server/pull/51",
-        "snapshotSummary": "PR URL: https://github.com/lgazo/drawio-mcp-server/pull/51\nHead SHA: 4541b08c53c0c0c100f2bb66e3c25647389454ad\nCI: NONE\nReview decision: NONE\nMerge state: UNSTABLE\nMergeable: MERGEABLE\nDraft: no\nUnresolved review threads: 0\nIssue comments: 2\nReview comments: 0\nReviews: 0",
-        "snapshotUpdatedAt": "2026-04-24T12:02:09Z",
-        "headSha": "4541b08c53c0c0c100f2bb66e3c25647389454ad",
-        "activities": [
-          {
-            "stream": "issue_comment",
-            "id": "4291187578",
-            "createdAt": "2026-04-21T19:19:32Z",
-            "authorLogin": "lgazo",
-            "authorType": "User",
-            "authorAssociation": "OWNER",
-            "state": null,
-            "url": "https://github.com/lgazo/drawio-mcp-server/pull/51#issuecomment-4291187578",
-            "excerpt": "Hi @Will-hxw, thank you for your contribution and PR. From a brief look it seems to be fine. Execute both the automated and manual tests for both Extension and Editor in as many agentic tools to av..."
-          }
-        ],
-        "activityCount": 1,
-        "streamCounts": {
-          "issueComments": 1,
-          "reviewComments": 0,
-          "reviews": 0
-        },
-        "latestActivity": {
-          "stream": "issue_comment",
-          "id": "4291187578",
-          "createdAt": "2026-04-21T19:19:32Z",
-          "authorLogin": "lgazo",
-          "authorType": "User",
-          "authorAssociation": "OWNER",
-          "state": null,
-          "url": "https://github.com/lgazo/drawio-mcp-server/pull/51#issuecomment-4291187578",
-          "excerpt": "Hi @Will-hxw, thank you for your contribution and PR. From a brief look it seems to be fine. Execute both the automated and manual tests for both Extension and Editor in as many agentic tools to av..."
-        }
-      }
-    },
-    {
-      "id": "c37500a9-c677-4c01-a764-197f039668c0",
-      "prKey": "lgazo/drawio-mcp-server#51",
-      "type": "NEW_COMMENT",
-      "severity": "LIGHT",
-      "createdAt": "2026-04-24T14:28:24.587Z",
-      "status": "pending",
-      "attemptCount": 0,
-      "lastAttemptAt": null,
-      "nextRetryAt": "2026-04-24T14:28:24.587Z",
-      "lastError": null,
-      "claimedAt": null,
-      "runningPid": null,
-      "boundary": {
-        "issueCommentCursor": {
-          "count": 1,
-          "lastId": "4312972047",
-          "lastCreatedAt": "2026-04-24T12:02:09Z"
-        },
-        "reviewCommentCursor": {
-          "count": 0,
-          "lastId": null,
-          "lastCreatedAt": null
-        },
-        "reviewCursor": {
-          "count": 0,
-          "lastId": null,
-          "lastCreatedAt": null
-        },
-        "snapshotUpdatedAt": "2026-04-24T12:02:09Z"
-      },
-      "details": {
-        "prUrl": "https://github.com/lgazo/drawio-mcp-server/pull/51",
-        "snapshotSummary": "PR URL: https://github.com/lgazo/drawio-mcp-server/pull/51\nHead SHA: 4541b08c53c0c0c100f2bb66e3c25647389454ad\nCI: NONE\nReview decision: NONE\nMerge state: UNSTABLE\nMergeable: MERGEABLE\nDraft: no\nUnresolved review threads: 0\nIssue comments: 2\nReview comments: 0\nReviews: 0",
-        "snapshotUpdatedAt": "2026-04-24T12:02:09Z",
-        "headSha": "4541b08c53c0c0c100f2bb66e3c25647389454ad",
-        "activities": [
-          {
-            "stream": "issue_comment",
-            "id": "4312972047",
-            "createdAt": "2026-04-24T12:02:09Z",
-            "authorLogin": "Will-hxw",
-            "authorType": "User",
-            "authorAssociation": "NONE",
-            "state": null,
-            "url": "https://github.com/lgazo/drawio-mcp-server/pull/51#issuecomment-4312972047",
-            "excerpt": "Hi @lgazo, thank you for reviewing the PR. I will execute the automated and manual tests for both the Extension and Editor across multiple agentic tools as requested, and will report back with the ..."
-          }
-        ],
-        "activityCount": 1,
-        "streamCounts": {
-          "issueComments": 1,
-          "reviewComments": 0,
-          "reviews": 0
-        },
-        "latestActivity": {
-          "stream": "issue_comment",
-          "id": "4312972047",
-          "createdAt": "2026-04-24T12:02:09Z",
-          "authorLogin": "Will-hxw",
-          "authorType": "User",
-          "authorAssociation": "NONE",
-          "state": null,
-          "url": "https://github.com/lgazo/drawio-mcp-server/pull/51#issuecomment-4312972047",
-          "excerpt": "Hi @lgazo, thank you for reviewing the PR. I will execute the automated and manual tests for both the Extension and Editor across multiple agentic tools as requested, and will report back with the ..."
-        }
-      }
-    },
-    {
       "id": "3ae90664-34e9-4878-96f1-e4af55e45011",
       "prKey": "awslabs/mcp#3264",
       "type": "CI_FAILURE",
       "severity": "HEAVY",
       "createdAt": "2026-04-24T14:28:27.336Z",
       "status": "pending",
-      "attemptCount": 0,
-      "lastAttemptAt": null,
-      "nextRetryAt": "2026-04-24T14:28:27.336Z",
-      "lastError": null,
+      "attemptCount": 1,
+      "lastAttemptAt": "2026-04-24T15:54:33.780Z",
+      "nextRetryAt": "2026-04-24T15:59:45.047Z",
+      "lastError": "missing_success_ack",
       "claimedAt": null,
       "runningPid": null,
       "boundary": {
@@ -872,7 +441,7 @@
         "headSha": "c2db7ce2b9ff287909c7090c9f4de85c05e5311c",
         "failingChecks": [
           {
-            "label": "Require Contributor Statement",
+            "label": "pull-request-lint / Require Contributor Statement",
             "status": "COMPLETED",
             "conclusion": "FAILURE"
           }
@@ -885,13 +454,13 @@
       "type": "REVIEW_CHANGES_REQUESTED",
       "severity": "HEAVY",
       "createdAt": "2026-04-24T14:28:27.343Z",
-      "status": "pending",
-      "attemptCount": 0,
-      "lastAttemptAt": null,
-      "nextRetryAt": "2026-04-24T14:28:27.343Z",
+      "status": "running",
+      "attemptCount": 1,
+      "lastAttemptAt": "2026-04-24T15:54:45.049Z",
+      "nextRetryAt": null,
       "lastError": null,
-      "claimedAt": null,
-      "runningPid": null,
+      "claimedAt": "2026-04-24T15:54:45.049Z",
+      "runningPid": 24232,
       "boundary": {
         "issueCommentCursor": {
           "count": 0,
@@ -938,14 +507,14 @@
           "lastCreatedAt": null
         },
         "reviewCommentCursor": {
-          "count": 2,
-          "lastId": "3133048035",
-          "lastCreatedAt": "2026-04-23T18:47:13Z"
+          "count": 1,
+          "lastId": "3132488023",
+          "lastCreatedAt": "2026-04-23T17:12:26Z"
         },
         "reviewCursor": {
-          "count": 2,
-          "lastId": "4165009260",
-          "lastCreatedAt": "2026-04-23T18:47:13Z"
+          "count": 1,
+          "lastId": "4164386672",
+          "lastCreatedAt": "2026-04-23T17:12:35Z"
         },
         "snapshotUpdatedAt": "2026-04-24T10:33:26Z"
       },
@@ -976,45 +545,23 @@
             "state": "CHANGES_REQUESTED",
             "url": "https://github.com/awslabs/mcp/pull/3264#pullrequestreview-4164386672",
             "excerpt": ""
-          },
-          {
-            "stream": "review_comment",
-            "id": "3133048035",
-            "createdAt": "2026-04-23T18:47:13Z",
-            "authorLogin": "Will-hxw",
-            "authorType": "User",
-            "authorAssociation": "NONE",
-            "state": null,
-            "url": "https://github.com/awslabs/mcp/pull/3264#discussion_r3133048035",
-            "excerpt": "Thank you for the review! You're right that the Getting Started guide refers to the remote EKS MCP server. This fix adds Secret redaction for the open source version. Regarding the README update --..."
-          },
-          {
-            "stream": "review",
-            "id": "4165009260",
-            "createdAt": "2026-04-23T18:47:13Z",
-            "authorLogin": "Will-hxw",
-            "authorType": "User",
-            "authorAssociation": "NONE",
-            "state": "COMMENTED",
-            "url": "https://github.com/awslabs/mcp/pull/3264#pullrequestreview-4165009260",
-            "excerpt": ""
           }
         ],
-        "activityCount": 4,
+        "activityCount": 2,
         "streamCounts": {
           "issueComments": 0,
-          "reviewComments": 2,
-          "reviews": 2
+          "reviewComments": 1,
+          "reviews": 1
         },
         "latestActivity": {
           "stream": "review",
-          "id": "4165009260",
-          "createdAt": "2026-04-23T18:47:13Z",
-          "authorLogin": "Will-hxw",
+          "id": "4164386672",
+          "createdAt": "2026-04-23T17:12:35Z",
+          "authorLogin": "srhsrhsrhsrh",
           "authorType": "User",
-          "authorAssociation": "NONE",
-          "state": "COMMENTED",
-          "url": "https://github.com/awslabs/mcp/pull/3264#pullrequestreview-4165009260",
+          "authorAssociation": "CONTRIBUTOR",
+          "state": "CHANGES_REQUESTED",
+          "url": "https://github.com/awslabs/mcp/pull/3264#pullrequestreview-4164386672",
           "excerpt": ""
         }
       }
@@ -1106,85 +653,6 @@
           "state": "COMMENTED",
           "url": "https://github.com/alpacahq/alpaca-mcp-server/pull/72#pullrequestreview-4168859709",
           "excerpt": "## Pull request overview Copilot reviewed 1 out of 1 changed files in this pull request and generated 1 comment. --- 💡 <a href=\"/alpacahq/alpaca-mcp-server/new/main?filename=.github/instructions/*..."
-        }
-      }
-    },
-    {
-      "id": "f2e3f7ee-3736-42e1-b4e7-e5715d521141",
-      "prKey": "alpacahq/alpaca-mcp-server#72",
-      "type": "NEW_COMMENT",
-      "severity": "LIGHT",
-      "createdAt": "2026-04-24T14:28:30.160Z",
-      "status": "pending",
-      "attemptCount": 0,
-      "lastAttemptAt": null,
-      "nextRetryAt": "2026-04-24T14:28:30.160Z",
-      "lastError": null,
-      "claimedAt": null,
-      "runningPid": null,
-      "boundary": {
-        "issueCommentCursor": {
-          "count": 0,
-          "lastId": null,
-          "lastCreatedAt": null
-        },
-        "reviewCommentCursor": {
-          "count": 1,
-          "lastId": "3136971277",
-          "lastCreatedAt": "2026-04-24T10:09:05Z"
-        },
-        "reviewCursor": {
-          "count": 1,
-          "lastId": "4169646750",
-          "lastCreatedAt": "2026-04-24T10:09:05Z"
-        },
-        "snapshotUpdatedAt": "2026-04-24T10:09:05Z"
-      },
-      "details": {
-        "prUrl": "https://github.com/alpacahq/alpaca-mcp-server/pull/72",
-        "snapshotSummary": "PR URL: https://github.com/alpacahq/alpaca-mcp-server/pull/72\nHead SHA: 03014eb7d342290ac4e10ccbb482b7a3e19515e2\nCI: NONE\nReview decision: NONE\nMerge state: UNSTABLE\nMergeable: MERGEABLE\nDraft: no\nUnresolved review threads: 1\nIssue comments: 0\nReview comments: 2\nReviews: 3",
-        "snapshotUpdatedAt": "2026-04-24T10:09:05Z",
-        "headSha": "03014eb7d342290ac4e10ccbb482b7a3e19515e2",
-        "activities": [
-          {
-            "stream": "review_comment",
-            "id": "3136971277",
-            "createdAt": "2026-04-24T10:09:05Z",
-            "authorLogin": "Will-hxw",
-            "authorType": "User",
-            "authorAssociation": "NONE",
-            "state": null,
-            "url": "https://github.com/alpacahq/alpaca-mcp-server/pull/72#discussion_r3136971277",
-            "excerpt": "Thank you for the review. The point about test coverage is noted — this PR currently adds the core fix without tests, which is appropriate for a minimal security/behavior change. The lack of test c..."
-          },
-          {
-            "stream": "review",
-            "id": "4169646750",
-            "createdAt": "2026-04-24T10:09:05Z",
-            "authorLogin": "Will-hxw",
-            "authorType": "User",
-            "authorAssociation": "NONE",
-            "state": "COMMENTED",
-            "url": "https://github.com/alpacahq/alpaca-mcp-server/pull/72#pullrequestreview-4169646750",
-            "excerpt": ""
-          }
-        ],
-        "activityCount": 2,
-        "streamCounts": {
-          "issueComments": 0,
-          "reviewComments": 1,
-          "reviews": 1
-        },
-        "latestActivity": {
-          "stream": "review",
-          "id": "4169646750",
-          "createdAt": "2026-04-24T10:09:05Z",
-          "authorLogin": "Will-hxw",
-          "authorType": "User",
-          "authorAssociation": "NONE",
-          "state": "COMMENTED",
-          "url": "https://github.com/alpacahq/alpaca-mcp-server/pull/72#pullrequestreview-4169646750",
-          "excerpt": ""
         }
       }
     },
@@ -1458,56 +926,6 @@
           "url": "https://github.com/browser-use/browser-use/pull/4736#issuecomment-4305627850",
           "excerpt": "[![CLA assistant check](https://cla-assistant.io/pull/badge/signed)](https://cla-assistant.io/browser-use/browser-use?pullRequest=4736) <br/>All committers have signed the CLA."
         }
-      }
-    },
-    {
-      "id": "334591c4-1549-4a69-84e6-e502f3bc6b68",
-      "prKey": "awslabs/mcp#3285",
-      "type": "CI_FAILURE",
-      "severity": "HEAVY",
-      "createdAt": "2026-04-24T14:34:42.421Z",
-      "status": "pending",
-      "attemptCount": 0,
-      "lastAttemptAt": null,
-      "nextRetryAt": "2026-04-24T14:34:42.421Z",
-      "lastError": null,
-      "claimedAt": null,
-      "runningPid": null,
-      "boundary": {
-        "issueCommentCursor": {
-          "count": 0,
-          "lastId": null,
-          "lastCreatedAt": null
-        },
-        "reviewCommentCursor": {
-          "count": 0,
-          "lastId": null,
-          "lastCreatedAt": null
-        },
-        "reviewCursor": {
-          "count": 0,
-          "lastId": null,
-          "lastCreatedAt": null
-        },
-        "snapshotUpdatedAt": "2026-04-24T14:28:24Z"
-      },
-      "details": {
-        "prUrl": "https://github.com/awslabs/mcp/pull/3285",
-        "snapshotSummary": "PR URL: https://github.com/awslabs/mcp/pull/3285\nHead SHA: ff08b5b0d73121011df7e169d9b640061de9333a\nCI: FAILED\nReview decision: REVIEW_REQUIRED\nMerge state: BLOCKED\nMergeable: MERGEABLE\nDraft: no\nUnresolved review threads: 0\nIssue comments: 0\nReview comments: 0\nReviews: 0",
-        "snapshotUpdatedAt": "2026-04-24T14:28:24Z",
-        "headSha": "ff08b5b0d73121011df7e169d9b640061de9333a",
-        "failingChecks": [
-          {
-            "label": "Require Contributor Statement",
-            "status": "COMPLETED",
-            "conclusion": "FAILURE"
-          },
-          {
-            "label": "Require Contributor Statement",
-            "status": "COMPLETED",
-            "conclusion": "FAILURE"
-          }
-        ]
       }
     }
   ]
