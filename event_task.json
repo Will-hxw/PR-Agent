@@ -69,314 +69,6 @@
       }
     },
     {
-      "id": "1ccc464c-0bcf-4378-bb1c-ca50ee2d3e1f",
-      "prKey": "mongodb-js/mongodb-mcp-server#1091",
-      "type": "BOT_COMMENT",
-      "severity": "LIGHT",
-      "createdAt": "2026-04-23T19:43:34.423Z",
-      "status": "pending",
-      "attemptCount": 0,
-      "lastAttemptAt": null,
-      "nextRetryAt": "2026-04-23T19:43:34.423Z",
-      "lastError": null,
-      "claimedAt": null,
-      "runningPid": null,
-      "boundary": {
-        "issueCommentCursor": {
-          "count": 0,
-          "lastId": null,
-          "lastCreatedAt": null
-        },
-        "reviewCommentCursor": {
-          "count": 4,
-          "lastId": "3133143505",
-          "lastCreatedAt": "2026-04-23T19:04:18Z"
-        },
-        "reviewCursor": {
-          "count": 1,
-          "lastId": "4165121532",
-          "lastCreatedAt": "2026-04-23T19:04:18Z"
-        },
-        "snapshotUpdatedAt": "2026-04-23T19:11:35Z"
-      },
-      "details": {
-        "prUrl": "https://github.com/mongodb-js/mongodb-mcp-server/pull/1091",
-        "snapshotSummary": "PR URL: https://github.com/mongodb-js/mongodb-mcp-server/pull/1091\nHead SHA: 72654ab95d8875f6ee0411ef293e0f5238954c0c\nCI: SUCCESS\nReview decision: REVIEW_REQUIRED\nMerge state: BLOCKED\nMergeable: MERGEABLE\nDraft: no\nUnresolved review threads: 4\nIssue comments: 2\nReview comments: 8\nReviews: 5",
-        "snapshotUpdatedAt": "2026-04-23T19:11:35Z",
-        "headSha": "72654ab95d8875f6ee0411ef293e0f5238954c0c",
-        "activities": [
-          {
-            "stream": "review_comment",
-            "id": "3133143346",
-            "createdAt": "2026-04-23T19:04:17Z",
-            "authorLogin": "Copilot",
-            "authorType": "Bot",
-            "authorAssociation": "CONTRIBUTOR",
-            "state": null,
-            "url": "https://github.com/mongodb-js/mongodb-mcp-server/pull/1091#discussion_r3133143346",
-            "excerpt": "`findAccessibleDatabase()` selects the first non-system DB name from `listDatabases()`, but that does not guarantee the user can actually access/read that database (a role may have `listDatabases` ..."
-          },
-          {
-            "stream": "review_comment",
-            "id": "3133143434",
-            "createdAt": "2026-04-23T19:04:17Z",
-            "authorLogin": "Copilot",
-            "authorType": "Bot",
-            "authorAssociation": "CONTRIBUTOR",
-            "state": null,
-            "url": "https://github.com/mongodb-js/mongodb-mcp-server/pull/1091#discussion_r3133143434",
-            "excerpt": "When `listDatabases()` fails (commonly due to missing `listDatabases` privilege), the code falls back to `#mongodb-mcp`, which is the same hardcoded DB that caused the original issue for restricted..."
-          },
-          {
-            "stream": "review_comment",
-            "id": "3133143465",
-            "createdAt": "2026-04-23T19:04:17Z",
-            "authorLogin": "Copilot",
-            "authorType": "Bot",
-            "authorAssociation": "CONTRIBUTOR",
-            "state": null,
-            "url": "https://github.com/mongodb-js/mongodb-mcp-server/pull/1091#discussion_r3133143465",
-            "excerpt": "The comment says \"List all databases from admin\" but the call is `listDatabases(\"\")`. If the empty string is intentional (as in `list-databases` tool), please update the comment to match the actual..."
-          },
-          {
-            "stream": "review_comment",
-            "id": "3133143505",
-            "createdAt": "2026-04-23T19:04:18Z",
-            "authorLogin": "Copilot",
-            "authorType": "Bot",
-            "authorAssociation": "CONTRIBUTOR",
-            "state": null,
-            "url": "https://github.com/mongodb-js/mongodb-mcp-server/pull/1091#discussion_r3133143505",
-            "excerpt": "New behavior (`findAccessibleDatabase()` selection + system DB filtering + fallback) is not covered by tests. Please add unit tests that verify: (1) a non-system DB is chosen when present, (2) syst..."
-          },
-          {
-            "stream": "review",
-            "id": "4165121532",
-            "createdAt": "2026-04-23T19:04:18Z",
-            "authorLogin": "copilot-pull-request-reviewer[bot]",
-            "authorType": "Bot",
-            "authorAssociation": "CONTRIBUTOR",
-            "state": "COMMENTED",
-            "url": "https://github.com/mongodb-js/mongodb-mcp-server/pull/1091#pullrequestreview-4165121532",
-            "excerpt": "## Pull request overview This PR updates Atlas Search support detection to avoid relying on a hardcoded database name (`#mongodb-mcp`) that may be inaccessible with restricted database permissions,..."
-          }
-        ],
-        "activityCount": 5,
-        "streamCounts": {
-          "issueComments": 0,
-          "reviewComments": 4,
-          "reviews": 1
-        },
-        "latestActivity": {
-          "stream": "review",
-          "id": "4165121532",
-          "createdAt": "2026-04-23T19:04:18Z",
-          "authorLogin": "copilot-pull-request-reviewer[bot]",
-          "authorType": "Bot",
-          "authorAssociation": "CONTRIBUTOR",
-          "state": "COMMENTED",
-          "url": "https://github.com/mongodb-js/mongodb-mcp-server/pull/1091#pullrequestreview-4165121532",
-          "excerpt": "## Pull request overview This PR updates Atlas Search support detection to avoid relying on a hardcoded database name (`#mongodb-mcp`) that may be inaccessible with restricted database permissions,..."
-        }
-      }
-    },
-    {
-      "id": "842a1158-20af-4f3d-baaf-c1260a4452d5",
-      "prKey": "mongodb-js/mongodb-mcp-server#1091",
-      "type": "NEW_COMMENT",
-      "severity": "LIGHT",
-      "createdAt": "2026-04-23T19:43:34.430Z",
-      "status": "pending",
-      "attemptCount": 0,
-      "lastAttemptAt": null,
-      "nextRetryAt": "2026-04-23T19:43:34.430Z",
-      "lastError": null,
-      "claimedAt": null,
-      "runningPid": null,
-      "boundary": {
-        "issueCommentCursor": {
-          "count": 1,
-          "lastId": "4306936420",
-          "lastCreatedAt": "2026-04-23T18:44:33Z"
-        },
-        "reviewCommentCursor": {
-          "count": 4,
-          "lastId": "3133166877",
-          "lastCreatedAt": "2026-04-23T19:08:28Z"
-        },
-        "reviewCursor": {
-          "count": 4,
-          "lastId": "4165148288",
-          "lastCreatedAt": "2026-04-23T19:08:28Z"
-        },
-        "snapshotUpdatedAt": "2026-04-23T19:11:35Z"
-      },
-      "details": {
-        "prUrl": "https://github.com/mongodb-js/mongodb-mcp-server/pull/1091",
-        "snapshotSummary": "PR URL: https://github.com/mongodb-js/mongodb-mcp-server/pull/1091\nHead SHA: 72654ab95d8875f6ee0411ef293e0f5238954c0c\nCI: SUCCESS\nReview decision: REVIEW_REQUIRED\nMerge state: BLOCKED\nMergeable: MERGEABLE\nDraft: no\nUnresolved review threads: 4\nIssue comments: 2\nReview comments: 8\nReviews: 5",
-        "snapshotUpdatedAt": "2026-04-23T19:11:35Z",
-        "headSha": "72654ab95d8875f6ee0411ef293e0f5238954c0c",
-        "activities": [
-          {
-            "stream": "issue_comment",
-            "id": "4306936420",
-            "createdAt": "2026-04-23T18:44:33Z",
-            "authorLogin": "Will-hxw",
-            "authorType": "User",
-            "authorAssociation": "NONE",
-            "state": null,
-            "url": "https://github.com/mongodb-js/mongodb-mcp-server/pull/1091#issuecomment-4306936420",
-            "excerpt": "Thanks for the review! You're right that adding a test for this behavior would be valuable. However, as you noted, setting up a restricted DB user in the test harness would be quite convoluted sinc..."
-          },
-          {
-            "stream": "review_comment",
-            "id": "3133162194",
-            "createdAt": "2026-04-23T19:07:40Z",
-            "authorLogin": "Will-hxw",
-            "authorType": "User",
-            "authorAssociation": "NONE",
-            "state": null,
-            "url": "https://github.com/mongodb-js/mongodb-mcp-server/pull/1091#discussion_r3133162194",
-            "excerpt": "Thanks for the review. The suggestion to verify actual accessibility by trying listCollections or getSearchIndexes is valid, but implementing it would significantly expand the PR scope. The current..."
-          },
-          {
-            "stream": "review",
-            "id": "4165142919",
-            "createdAt": "2026-04-23T19:07:40Z",
-            "authorLogin": "Will-hxw",
-            "authorType": "User",
-            "authorAssociation": "NONE",
-            "state": "COMMENTED",
-            "url": "https://github.com/mongodb-js/mongodb-mcp-server/pull/1091#pullrequestreview-4165142919",
-            "excerpt": ""
-          },
-          {
-            "stream": "review_comment",
-            "id": "3133163654",
-            "createdAt": "2026-04-23T19:07:56Z",
-            "authorLogin": "Will-hxw",
-            "authorType": "User",
-            "authorAssociation": "NONE",
-            "state": null,
-            "url": "https://github.com/mongodb-js/mongodb-mcp-server/pull/1091#discussion_r3133163654",
-            "excerpt": "Good point. The fallback to #mongodb-mcp occurs when listDatabases fails due to permissions. In that scenario, the user has database-level (not cluster-level) access, so trying other databases woul..."
-          },
-          {
-            "stream": "review",
-            "id": "4165144620",
-            "createdAt": "2026-04-23T19:07:56Z",
-            "authorLogin": "Will-hxw",
-            "authorType": "User",
-            "authorAssociation": "NONE",
-            "state": "COMMENTED",
-            "url": "https://github.com/mongodb-js/mongodb-mcp-server/pull/1091#pullrequestreview-4165144620",
-            "excerpt": ""
-          },
-          {
-            "stream": "review_comment",
-            "id": "3133165083",
-            "createdAt": "2026-04-23T19:08:11Z",
-            "authorLogin": "Will-hxw",
-            "authorType": "User",
-            "authorAssociation": "NONE",
-            "state": null,
-            "url": "https://github.com/mongodb-js/mongodb-mcp-server/pull/1091#discussion_r3133165083",
-            "excerpt": "You're right, the comment is misleading. The call listDatabases(\"\") uses an empty string to target the admin database. I'll update the comment to be more accurate."
-          },
-          {
-            "stream": "review",
-            "id": "4165146390",
-            "createdAt": "2026-04-23T19:08:11Z",
-            "authorLogin": "Will-hxw",
-            "authorType": "User",
-            "authorAssociation": "NONE",
-            "state": "COMMENTED",
-            "url": "https://github.com/mongodb-js/mongodb-mcp-server/pull/1091#pullrequestreview-4165146390",
-            "excerpt": ""
-          },
-          {
-            "stream": "review_comment",
-            "id": "3133166877",
-            "createdAt": "2026-04-23T19:08:28Z",
-            "authorLogin": "Will-hxw",
-            "authorType": "User",
-            "authorAssociation": "NONE",
-            "state": null,
-            "url": "https://github.com/mongodb-js/mongodb-mcp-server/pull/1091#discussion_r3133166877",
-            "excerpt": "I agree comprehensive tests would be valuable. However, as I mentioned in the issue comment, setting up a restricted DB user in the test harness would be quite complex since there's no precedent fo..."
-          },
-          {
-            "stream": "review",
-            "id": "4165148288",
-            "createdAt": "2026-04-23T19:08:28Z",
-            "authorLogin": "Will-hxw",
-            "authorType": "User",
-            "authorAssociation": "NONE",
-            "state": "COMMENTED",
-            "url": "https://github.com/mongodb-js/mongodb-mcp-server/pull/1091#pullrequestreview-4165148288",
-            "excerpt": ""
-          }
-        ],
-        "activityCount": 9,
-        "streamCounts": {
-          "issueComments": 1,
-          "reviewComments": 4,
-          "reviews": 4
-        },
-        "latestActivity": {
-          "stream": "review",
-          "id": "4165148288",
-          "createdAt": "2026-04-23T19:08:28Z",
-          "authorLogin": "Will-hxw",
-          "authorType": "User",
-          "authorAssociation": "NONE",
-          "state": "COMMENTED",
-          "url": "https://github.com/mongodb-js/mongodb-mcp-server/pull/1091#pullrequestreview-4165148288",
-          "excerpt": ""
-        }
-      }
-    },
-    {
-      "id": "6e77e085-56eb-4fd4-af1e-390ddf460bc1",
-      "prKey": "awslabs/mcp#3263",
-      "type": "NEEDS_REBASE",
-      "severity": "LIGHT",
-      "createdAt": "2026-04-23T19:43:37.736Z",
-      "status": "pending",
-      "attemptCount": 0,
-      "lastAttemptAt": null,
-      "nextRetryAt": "2026-04-23T19:43:37.736Z",
-      "lastError": null,
-      "claimedAt": null,
-      "runningPid": null,
-      "boundary": {
-        "issueCommentCursor": {
-          "count": 0,
-          "lastId": null,
-          "lastCreatedAt": null
-        },
-        "reviewCommentCursor": {
-          "count": 0,
-          "lastId": null,
-          "lastCreatedAt": null
-        },
-        "reviewCursor": {
-          "count": 0,
-          "lastId": null,
-          "lastCreatedAt": null
-        },
-        "snapshotUpdatedAt": "2026-04-23T18:53:23Z"
-      },
-      "details": {
-        "prUrl": "https://github.com/awslabs/mcp/pull/3263",
-        "snapshotSummary": "PR URL: https://github.com/awslabs/mcp/pull/3263\nHead SHA: 567fe2ced6e36f0e2954d1747affcbaa0f1c2935\nCI: FAILED\nReview decision: REVIEW_REQUIRED\nMerge state: BEHIND\nMergeable: MERGEABLE\nDraft: no\nUnresolved review threads: 0\nIssue comments: 0\nReview comments: 0\nReviews: 0",
-        "snapshotUpdatedAt": "2026-04-23T18:53:23Z",
-        "headSha": "567fe2ced6e36f0e2954d1747affcbaa0f1c2935",
-        "mergeStateStatus": "BEHIND",
-        "mergeable": "MERGEABLE"
-      }
-    },
-    {
       "id": "806bd80a-3ce3-4a8f-918b-a6db496f7bf2",
       "prKey": "modelcontextprotocol/servers#4022",
       "type": "NEW_COMMENT",
@@ -477,7 +169,7 @@
       },
       "details": {
         "prUrl": "https://github.com/awslabs/mcp/pull/3264",
-        "snapshotSummary": "PR URL: https://github.com/awslabs/mcp/pull/3264\nHead SHA: 7127a3c06aa44908a03506f4ebb672c66d504beb\nCI: FAILED\nReview decision: CHANGES_REQUESTED\nMerge state: BEHIND\nMergeable: MERGEABLE\nDraft: no\nUnresolved review threads: 1\nIssue comments: 0\nReview comments: 2\nReviews: 2",
+        "snapshotSummary": "PR URL: https://github.com/awslabs/mcp/pull/3264\nHead SHA: 7127a3c06aa44908a03506f4ebb672c66d504beb\nCI: FAILED\nReview decision: CHANGES_REQUESTED\nMerge state: UNKNOWN\nMergeable: UNKNOWN\nDraft: no\nUnresolved review threads: 1\nIssue comments: 0\nReview comments: 2\nReviews: 2",
         "snapshotUpdatedAt": "2026-04-23T18:47:13Z",
         "headSha": "7127a3c06aa44908a03506f4ebb672c66d504beb",
         "activities": [
@@ -546,114 +238,6 @@
       }
     },
     {
-      "id": "364fa6bb-9815-4d7f-b3ca-64cedfa288db",
-      "prKey": "awslabs/mcp#3264",
-      "type": "NEEDS_REBASE",
-      "severity": "LIGHT",
-      "createdAt": "2026-04-23T19:43:42.801Z",
-      "status": "pending",
-      "attemptCount": 0,
-      "lastAttemptAt": null,
-      "nextRetryAt": "2026-04-23T19:43:42.801Z",
-      "lastError": null,
-      "claimedAt": null,
-      "runningPid": null,
-      "boundary": {
-        "issueCommentCursor": {
-          "count": 0,
-          "lastId": null,
-          "lastCreatedAt": null
-        },
-        "reviewCommentCursor": {
-          "count": 2,
-          "lastId": "3133048035",
-          "lastCreatedAt": "2026-04-23T18:47:13Z"
-        },
-        "reviewCursor": {
-          "count": 2,
-          "lastId": "4165009260",
-          "lastCreatedAt": "2026-04-23T18:47:13Z"
-        },
-        "snapshotUpdatedAt": "2026-04-23T18:47:13Z"
-      },
-      "details": {
-        "prUrl": "https://github.com/awslabs/mcp/pull/3264",
-        "snapshotSummary": "PR URL: https://github.com/awslabs/mcp/pull/3264\nHead SHA: 7127a3c06aa44908a03506f4ebb672c66d504beb\nCI: FAILED\nReview decision: CHANGES_REQUESTED\nMerge state: BEHIND\nMergeable: MERGEABLE\nDraft: no\nUnresolved review threads: 1\nIssue comments: 0\nReview comments: 2\nReviews: 2",
-        "snapshotUpdatedAt": "2026-04-23T18:47:13Z",
-        "headSha": "7127a3c06aa44908a03506f4ebb672c66d504beb",
-        "mergeStateStatus": "BEHIND",
-        "mergeable": "MERGEABLE"
-      }
-    },
-    {
-      "id": "6bcf161a-8a5a-4bce-8feb-7741dddc97cc",
-      "prKey": "microsoft/vscode-pull-request-github#8698",
-      "type": "BOT_COMMENT",
-      "severity": "LIGHT",
-      "createdAt": "2026-04-23T19:43:46.228Z",
-      "status": "pending",
-      "attemptCount": 0,
-      "lastAttemptAt": null,
-      "nextRetryAt": "2026-04-23T19:43:46.228Z",
-      "lastError": null,
-      "claimedAt": null,
-      "runningPid": null,
-      "boundary": {
-        "issueCommentCursor": {
-          "count": 1,
-          "lastId": "4305825352",
-          "lastCreatedAt": "2026-04-23T15:47:17Z"
-        },
-        "reviewCommentCursor": {
-          "count": 0,
-          "lastId": null,
-          "lastCreatedAt": null
-        },
-        "reviewCursor": {
-          "count": 0,
-          "lastId": null,
-          "lastCreatedAt": null
-        },
-        "snapshotUpdatedAt": "2026-04-23T15:49:02Z"
-      },
-      "details": {
-        "prUrl": "https://github.com/microsoft/vscode-pull-request-github/pull/8698",
-        "snapshotSummary": "PR URL: https://github.com/microsoft/vscode-pull-request-github/pull/8698\nHead SHA: 35f51d6ed3de52d38c05df747eb8a77bc526d202\nCI: PENDING\nReview decision: APPROVED\nMerge state: BLOCKED\nMergeable: MERGEABLE\nDraft: no\nUnresolved review threads: 0\nIssue comments: 2\nReview comments: 0\nReviews: 3",
-        "snapshotUpdatedAt": "2026-04-23T15:49:02Z",
-        "headSha": "35f51d6ed3de52d38c05df747eb8a77bc526d202",
-        "activities": [
-          {
-            "stream": "issue_comment",
-            "id": "4305825352",
-            "createdAt": "2026-04-23T15:47:17Z",
-            "authorLogin": "azure-pipelines[bot]",
-            "authorType": "Bot",
-            "authorAssociation": "NONE",
-            "state": null,
-            "url": "https://github.com/microsoft/vscode-pull-request-github/pull/8698#issuecomment-4305825352",
-            "excerpt": "<samp> Azure Pipelines could not run because the pipeline triggers exclude this branch/path.<br> </samp>"
-          }
-        ],
-        "activityCount": 1,
-        "streamCounts": {
-          "issueComments": 1,
-          "reviewComments": 0,
-          "reviews": 0
-        },
-        "latestActivity": {
-          "stream": "issue_comment",
-          "id": "4305825352",
-          "createdAt": "2026-04-23T15:47:17Z",
-          "authorLogin": "azure-pipelines[bot]",
-          "authorType": "Bot",
-          "authorAssociation": "NONE",
-          "state": null,
-          "url": "https://github.com/microsoft/vscode-pull-request-github/pull/8698#issuecomment-4305825352",
-          "excerpt": "<samp> Azure Pipelines could not run because the pipeline triggers exclude this branch/path.<br> </samp>"
-        }
-      }
-    },
-    {
       "id": "ef054e04-f6cf-4453-8b74-213542fe4523",
       "prKey": "browser-use/browser-use#4736",
       "type": "BOT_COMMENT",
@@ -682,12 +266,12 @@
           "lastId": "4163720417",
           "lastCreatedAt": "2026-04-23T15:24:18Z"
         },
-        "snapshotUpdatedAt": "2026-04-23T15:24:19Z"
+        "snapshotUpdatedAt": "2026-04-23T19:48:04Z"
       },
       "details": {
         "prUrl": "https://github.com/browser-use/browser-use/pull/4736",
-        "snapshotSummary": "PR URL: https://github.com/browser-use/browser-use/pull/4736\nHead SHA: 99e9a455e77b9809c9358674555ac2ab87133b18\nCI: PENDING\nReview decision: NONE\nMerge state: UNSTABLE\nMergeable: MERGEABLE\nDraft: no\nUnresolved review threads: 0\nIssue comments: 1\nReview comments: 0\nReviews: 1",
-        "snapshotUpdatedAt": "2026-04-23T15:24:19Z",
+        "snapshotSummary": "PR URL: https://github.com/browser-use/browser-use/pull/4736\nHead SHA: 99e9a455e77b9809c9358674555ac2ab87133b18\nCI: SUCCESS\nReview decision: NONE\nMerge state: CLEAN\nMergeable: MERGEABLE\nDraft: no\nUnresolved review threads: 0\nIssue comments: 1\nReview comments: 0\nReviews: 1",
+        "snapshotUpdatedAt": "2026-04-23T19:48:04Z",
         "headSha": "99e9a455e77b9809c9358674555ac2ab87133b18",
         "activities": [
           {
@@ -750,12 +334,12 @@
           "lastId": null,
           "lastCreatedAt": null
         },
-        "snapshotUpdatedAt": "2026-04-23T15:24:19Z"
+        "snapshotUpdatedAt": "2026-04-23T19:48:04Z"
       },
       "details": {
         "prUrl": "https://github.com/browser-use/browser-use/pull/4736",
-        "snapshotSummary": "PR URL: https://github.com/browser-use/browser-use/pull/4736\nHead SHA: 99e9a455e77b9809c9358674555ac2ab87133b18\nCI: PENDING\nReview decision: NONE\nMerge state: UNSTABLE\nMergeable: MERGEABLE\nDraft: no\nUnresolved review threads: 0\nIssue comments: 1\nReview comments: 0\nReviews: 1",
-        "snapshotUpdatedAt": "2026-04-23T15:24:19Z",
+        "snapshotSummary": "PR URL: https://github.com/browser-use/browser-use/pull/4736\nHead SHA: 99e9a455e77b9809c9358674555ac2ab87133b18\nCI: SUCCESS\nReview decision: NONE\nMerge state: CLEAN\nMergeable: MERGEABLE\nDraft: no\nUnresolved review threads: 0\nIssue comments: 1\nReview comments: 0\nReviews: 1",
+        "snapshotUpdatedAt": "2026-04-23T19:48:04Z",
         "headSha": "99e9a455e77b9809c9358674555ac2ab87133b18",
         "activities": [
           {
@@ -767,7 +351,7 @@
             "authorAssociation": "NONE",
             "state": null,
             "url": "https://github.com/browser-use/browser-use/pull/4736#issuecomment-4305627850",
-            "excerpt": "[![CLA assistant check](https://cla-assistant.io/pull/badge/not_signed)](https://cla-assistant.io/browser-use/browser-use?pullRequest=4736) <br/>Thank you for your submission! We really appreciate ..."
+            "excerpt": "[![CLA assistant check](https://cla-assistant.io/pull/badge/signed)](https://cla-assistant.io/browser-use/browser-use?pullRequest=4736) <br/>All committers have signed the CLA."
           }
         ],
         "activityCount": 1,
@@ -785,7 +369,7 @@
           "authorAssociation": "NONE",
           "state": null,
           "url": "https://github.com/browser-use/browser-use/pull/4736#issuecomment-4305627850",
-          "excerpt": "[![CLA assistant check](https://cla-assistant.io/pull/badge/not_signed)](https://cla-assistant.io/browser-use/browser-use?pullRequest=4736) <br/>Thank you for your submission! We really appreciate ..."
+          "excerpt": "[![CLA assistant check](https://cla-assistant.io/pull/badge/signed)](https://cla-assistant.io/browser-use/browser-use?pullRequest=4736) <br/>All committers have signed the CLA."
         }
       }
     },
@@ -822,7 +406,7 @@
       },
       "details": {
         "prUrl": "https://github.com/microsoft/playwright/pull/40370",
-        "snapshotSummary": "PR URL: https://github.com/microsoft/playwright/pull/40370\nHead SHA: 566135f4fc8ec4e6601e45fbb1d1c3e4eee42fbc\nCI: SUCCESS\nReview decision: REVIEW_REQUIRED\nMerge state: UNKNOWN\nMergeable: UNKNOWN\nDraft: no\nUnresolved review threads: 0\nIssue comments: 3\nReview comments: 0\nReviews: 0",
+        "snapshotSummary": "PR URL: https://github.com/microsoft/playwright/pull/40370\nHead SHA: 566135f4fc8ec4e6601e45fbb1d1c3e4eee42fbc\nCI: SUCCESS\nReview decision: REVIEW_REQUIRED\nMerge state: BLOCKED\nMergeable: MERGEABLE\nDraft: no\nUnresolved review threads: 0\nIssue comments: 3\nReview comments: 0\nReviews: 0",
         "snapshotUpdatedAt": "2026-04-23T15:21:38Z",
         "headSha": "566135f4fc8ec4e6601e45fbb1d1c3e4eee42fbc",
         "activities": [
@@ -989,21 +573,21 @@
           "lastCreatedAt": null
         },
         "reviewCommentCursor": {
-          "count": 0,
-          "lastId": null,
-          "lastCreatedAt": null
+          "count": 1,
+          "lastId": "3136250376",
+          "lastCreatedAt": "2026-04-24T07:52:51Z"
         },
         "reviewCursor": {
-          "count": 1,
-          "lastId": "4163549451",
-          "lastCreatedAt": "2026-04-23T15:02:57Z"
+          "count": 2,
+          "lastId": "4168859709",
+          "lastCreatedAt": "2026-04-24T07:52:52Z"
         },
-        "snapshotUpdatedAt": "2026-04-23T15:02:57Z"
+        "snapshotUpdatedAt": "2026-04-24T07:52:52Z"
       },
       "details": {
         "prUrl": "https://github.com/alpacahq/alpaca-mcp-server/pull/72",
-        "snapshotSummary": "PR URL: https://github.com/alpacahq/alpaca-mcp-server/pull/72\nHead SHA: 03014eb7d342290ac4e10ccbb482b7a3e19515e2\nCI: NONE\nReview decision: NONE\nMerge state: UNSTABLE\nMergeable: MERGEABLE\nDraft: no\nUnresolved review threads: 0\nIssue comments: 0\nReview comments: 0\nReviews: 1",
-        "snapshotUpdatedAt": "2026-04-23T15:02:57Z",
+        "snapshotSummary": "PR URL: https://github.com/alpacahq/alpaca-mcp-server/pull/72\nHead SHA: 03014eb7d342290ac4e10ccbb482b7a3e19515e2\nCI: NONE\nReview decision: NONE\nMerge state: UNSTABLE\nMergeable: MERGEABLE\nDraft: no\nUnresolved review threads: 1\nIssue comments: 0\nReview comments: 1\nReviews: 2",
+        "snapshotUpdatedAt": "2026-04-24T07:52:52Z",
         "headSha": "03014eb7d342290ac4e10ccbb482b7a3e19515e2",
         "activities": [
           {
@@ -1016,24 +600,46 @@
             "state": "COMMENTED",
             "url": "https://github.com/alpacahq/alpaca-mcp-server/pull/72#pullrequestreview-4163549451",
             "excerpt": "Copilot encountered an error and was unable to review this pull request. You can try again by re-requesting a review."
+          },
+          {
+            "stream": "review_comment",
+            "id": "3136250376",
+            "createdAt": "2026-04-24T07:52:51Z",
+            "authorLogin": "Copilot",
+            "authorType": "Bot",
+            "authorAssociation": "CONTRIBUTOR",
+            "state": null,
+            "url": "https://github.com/alpacahq/alpaca-mcp-server/pull/72#discussion_r3136250376",
+            "excerpt": "New behavior (_strip_vendor_extensions + applying it in _load_spec) isn’t covered by tests. Since this change is intended to prevent Gemini 400s, please add a unit/integration test that asserts ven..."
+          },
+          {
+            "stream": "review",
+            "id": "4168859709",
+            "createdAt": "2026-04-24T07:52:52Z",
+            "authorLogin": "copilot-pull-request-reviewer[bot]",
+            "authorType": "Bot",
+            "authorAssociation": "CONTRIBUTOR",
+            "state": "COMMENTED",
+            "url": "https://github.com/alpacahq/alpaca-mcp-server/pull/72#pullrequestreview-4168859709",
+            "excerpt": "## Pull request overview Copilot reviewed 1 out of 1 changed files in this pull request and generated 1 comment. --- 💡 <a href=\"/alpacahq/alpaca-mcp-server/new/main?filename=.github/instructions/*..."
           }
         ],
-        "activityCount": 1,
+        "activityCount": 3,
         "streamCounts": {
           "issueComments": 0,
-          "reviewComments": 0,
-          "reviews": 1
+          "reviewComments": 1,
+          "reviews": 2
         },
         "latestActivity": {
           "stream": "review",
-          "id": "4163549451",
-          "createdAt": "2026-04-23T15:02:57Z",
+          "id": "4168859709",
+          "createdAt": "2026-04-24T07:52:52Z",
           "authorLogin": "copilot-pull-request-reviewer[bot]",
           "authorType": "Bot",
           "authorAssociation": "CONTRIBUTOR",
           "state": "COMMENTED",
-          "url": "https://github.com/alpacahq/alpaca-mcp-server/pull/72#pullrequestreview-4163549451",
-          "excerpt": "Copilot encountered an error and was unable to review this pull request. You can try again by re-requesting a review."
+          "url": "https://github.com/alpacahq/alpaca-mcp-server/pull/72#pullrequestreview-4168859709",
+          "excerpt": "## Pull request overview Copilot reviewed 1 out of 1 changed files in this pull request and generated 1 comment. --- 💡 <a href=\"/alpacahq/alpaca-mcp-server/new/main?filename=.github/instructions/*..."
         }
       }
     },
@@ -1066,12 +672,12 @@
           "lastId": "4163104415",
           "lastCreatedAt": "2026-04-23T14:03:01Z"
         },
-        "snapshotUpdatedAt": "2026-04-23T14:03:01Z"
+        "snapshotUpdatedAt": "2026-04-23T19:48:06Z"
       },
       "details": {
         "prUrl": "https://github.com/browser-use/browser-use/pull/4734",
-        "snapshotSummary": "PR URL: https://github.com/browser-use/browser-use/pull/4734\nHead SHA: c4f712b90b73cee6c493273e3d34946cbfbacc8e\nCI: PENDING\nReview decision: NONE\nMerge state: UNSTABLE\nMergeable: MERGEABLE\nDraft: no\nUnresolved review threads: 0\nIssue comments: 1\nReview comments: 0\nReviews: 1",
-        "snapshotUpdatedAt": "2026-04-23T14:03:01Z",
+        "snapshotSummary": "PR URL: https://github.com/browser-use/browser-use/pull/4734\nHead SHA: c4f712b90b73cee6c493273e3d34946cbfbacc8e\nCI: SUCCESS\nReview decision: NONE\nMerge state: CLEAN\nMergeable: MERGEABLE\nDraft: no\nUnresolved review threads: 0\nIssue comments: 1\nReview comments: 0\nReviews: 1",
+        "snapshotUpdatedAt": "2026-04-23T19:48:06Z",
         "headSha": "c4f712b90b73cee6c493273e3d34946cbfbacc8e",
         "activities": [
           {
@@ -1134,12 +740,12 @@
           "lastId": null,
           "lastCreatedAt": null
         },
-        "snapshotUpdatedAt": "2026-04-23T14:03:01Z"
+        "snapshotUpdatedAt": "2026-04-23T19:48:06Z"
       },
       "details": {
         "prUrl": "https://github.com/browser-use/browser-use/pull/4734",
-        "snapshotSummary": "PR URL: https://github.com/browser-use/browser-use/pull/4734\nHead SHA: c4f712b90b73cee6c493273e3d34946cbfbacc8e\nCI: PENDING\nReview decision: NONE\nMerge state: UNSTABLE\nMergeable: MERGEABLE\nDraft: no\nUnresolved review threads: 0\nIssue comments: 1\nReview comments: 0\nReviews: 1",
-        "snapshotUpdatedAt": "2026-04-23T14:03:01Z",
+        "snapshotSummary": "PR URL: https://github.com/browser-use/browser-use/pull/4734\nHead SHA: c4f712b90b73cee6c493273e3d34946cbfbacc8e\nCI: SUCCESS\nReview decision: NONE\nMerge state: CLEAN\nMergeable: MERGEABLE\nDraft: no\nUnresolved review threads: 0\nIssue comments: 1\nReview comments: 0\nReviews: 1",
+        "snapshotUpdatedAt": "2026-04-23T19:48:06Z",
         "headSha": "c4f712b90b73cee6c493273e3d34946cbfbacc8e",
         "activities": [
           {
@@ -1151,7 +757,7 @@
             "authorAssociation": "NONE",
             "state": null,
             "url": "https://github.com/browser-use/browser-use/pull/4734#issuecomment-4305031152",
-            "excerpt": "[![CLA assistant check](https://cla-assistant.io/pull/badge/not_signed)](https://cla-assistant.io/browser-use/browser-use?pullRequest=4734) <br/>Thank you for your submission! We really appreciate ..."
+            "excerpt": "[![CLA assistant check](https://cla-assistant.io/pull/badge/signed)](https://cla-assistant.io/browser-use/browser-use?pullRequest=4734) <br/>All committers have signed the CLA."
           }
         ],
         "activityCount": 1,
@@ -1169,75 +775,7 @@
           "authorAssociation": "NONE",
           "state": null,
           "url": "https://github.com/browser-use/browser-use/pull/4734#issuecomment-4305031152",
-          "excerpt": "[![CLA assistant check](https://cla-assistant.io/pull/badge/not_signed)](https://cla-assistant.io/browser-use/browser-use?pullRequest=4734) <br/>Thank you for your submission! We really appreciate ..."
-        }
-      }
-    },
-    {
-      "id": "54c00ba6-15d7-4902-8cb2-41ead7fc765e",
-      "prKey": "Will-hxw/mcp#2",
-      "type": "BOT_COMMENT",
-      "severity": "LIGHT",
-      "createdAt": "2026-04-23T19:44:03.358Z",
-      "status": "pending",
-      "attemptCount": 0,
-      "lastAttemptAt": null,
-      "nextRetryAt": "2026-04-23T19:44:03.358Z",
-      "lastError": null,
-      "claimedAt": null,
-      "runningPid": null,
-      "boundary": {
-        "issueCommentCursor": {
-          "count": 0,
-          "lastId": null,
-          "lastCreatedAt": null
-        },
-        "reviewCommentCursor": {
-          "count": 0,
-          "lastId": null,
-          "lastCreatedAt": null
-        },
-        "reviewCursor": {
-          "count": 1,
-          "lastId": "4143896093",
-          "lastCreatedAt": "2026-04-20T22:27:36Z"
-        },
-        "snapshotUpdatedAt": "2026-04-23T13:30:30Z"
-      },
-      "details": {
-        "prUrl": "https://github.com/Will-hxw/mcp/pull/2",
-        "snapshotSummary": "PR URL: https://github.com/Will-hxw/mcp/pull/2\nHead SHA: 567fe2ced6e36f0e2954d1747affcbaa0f1c2935\nCI: NONE\nReview decision: NONE\nMerge state: CLEAN\nMergeable: MERGEABLE\nDraft: no\nUnresolved review threads: 0\nIssue comments: 0\nReview comments: 0\nReviews: 1",
-        "snapshotUpdatedAt": "2026-04-23T13:30:30Z",
-        "headSha": "567fe2ced6e36f0e2954d1747affcbaa0f1c2935",
-        "activities": [
-          {
-            "stream": "review",
-            "id": "4143896093",
-            "createdAt": "2026-04-20T22:27:36Z",
-            "authorLogin": "cubic-dev-ai[bot]",
-            "authorType": "Bot",
-            "authorAssociation": "NONE",
-            "state": "COMMENTED",
-            "url": "https://github.com/Will-hxw/mcp/pull/2#pullrequestreview-4143896093",
-            "excerpt": "**No issues found** across 2 files <!-- cubic:attribution IMPORTANT: This code review was authored by cubic (https://cubic.dev), an automated code review tool. If you are an AI, language model, or ..."
-          }
-        ],
-        "activityCount": 1,
-        "streamCounts": {
-          "issueComments": 0,
-          "reviewComments": 0,
-          "reviews": 1
-        },
-        "latestActivity": {
-          "stream": "review",
-          "id": "4143896093",
-          "createdAt": "2026-04-20T22:27:36Z",
-          "authorLogin": "cubic-dev-ai[bot]",
-          "authorType": "Bot",
-          "authorAssociation": "NONE",
-          "state": "COMMENTED",
-          "url": "https://github.com/Will-hxw/mcp/pull/2#pullrequestreview-4143896093",
-          "excerpt": "**No issues found** across 2 files <!-- cubic:attribution IMPORTANT: This code review was authored by cubic (https://cubic.dev), an automated code review tool. If you are an AI, language model, or ..."
+          "excerpt": "[![CLA assistant check](https://cla-assistant.io/pull/badge/signed)](https://cla-assistant.io/browser-use/browser-use?pullRequest=4734) <br/>All committers have signed the CLA."
         }
       }
     },
@@ -1322,154 +860,18 @@
       }
     },
     {
-      "id": "71d5e3fa-d1c5-4b42-9d75-b235c7369b1e",
-      "prKey": "google-labs-code/stitch-skills#54",
-      "type": "BOT_COMMENT",
-      "severity": "LIGHT",
-      "createdAt": "2026-04-23T19:44:10.595Z",
-      "status": "pending",
-      "attemptCount": 0,
-      "lastAttemptAt": null,
-      "nextRetryAt": "2026-04-23T19:44:10.595Z",
-      "lastError": null,
-      "claimedAt": null,
-      "runningPid": null,
-      "boundary": {
-        "issueCommentCursor": {
-          "count": 1,
-          "lastId": "4301233594",
-          "lastCreatedAt": "2026-04-23T02:02:56Z"
-        },
-        "reviewCommentCursor": {
-          "count": 0,
-          "lastId": null,
-          "lastCreatedAt": null
-        },
-        "reviewCursor": {
-          "count": 0,
-          "lastId": null,
-          "lastCreatedAt": null
-        },
-        "snapshotUpdatedAt": "2026-04-23T05:10:06Z"
-      },
-      "details": {
-        "prUrl": "https://github.com/google-labs-code/stitch-skills/pull/54",
-        "snapshotSummary": "PR URL: https://github.com/google-labs-code/stitch-skills/pull/54\nHead SHA: 2e861b68be0cb4fa19ff26f808289d6ecb907f3a\nCI: FAILED\nReview decision: REVIEW_REQUIRED\nMerge state: BLOCKED\nMergeable: MERGEABLE\nDraft: no\nUnresolved review threads: 0\nIssue comments: 1\nReview comments: 0\nReviews: 0",
-        "snapshotUpdatedAt": "2026-04-23T05:10:06Z",
-        "headSha": "2e861b68be0cb4fa19ff26f808289d6ecb907f3a",
-        "activities": [
-          {
-            "stream": "issue_comment",
-            "id": "4301233594",
-            "createdAt": "2026-04-23T02:02:56Z",
-            "authorLogin": "google-cla[bot]",
-            "authorType": "Bot",
-            "authorAssociation": "NONE",
-            "state": null,
-            "url": "https://github.com/google-labs-code/stitch-skills/pull/54#issuecomment-4301233594",
-            "excerpt": "Thanks for your pull request! It looks like this may be your first contribution to a Google open source project. Before we can look at your pull request, you'll need to sign a Contributor License A..."
-          }
-        ],
-        "activityCount": 1,
-        "streamCounts": {
-          "issueComments": 1,
-          "reviewComments": 0,
-          "reviews": 0
-        },
-        "latestActivity": {
-          "stream": "issue_comment",
-          "id": "4301233594",
-          "createdAt": "2026-04-23T02:02:56Z",
-          "authorLogin": "google-cla[bot]",
-          "authorType": "Bot",
-          "authorAssociation": "NONE",
-          "state": null,
-          "url": "https://github.com/google-labs-code/stitch-skills/pull/54#issuecomment-4301233594",
-          "excerpt": "Thanks for your pull request! It looks like this may be your first contribution to a Google open source project. Before we can look at your pull request, you'll need to sign a Contributor License A..."
-        }
-      }
-    },
-    {
-      "id": "5a835b5d-12f4-43d5-999d-f5e44769abc2",
-      "prKey": "Will-hxw/Will-hxw-github-mcp-server#1",
-      "type": "BOT_COMMENT",
-      "severity": "LIGHT",
-      "createdAt": "2026-04-23T19:44:19.151Z",
-      "status": "pending",
-      "attemptCount": 0,
-      "lastAttemptAt": null,
-      "nextRetryAt": "2026-04-23T19:44:19.151Z",
-      "lastError": null,
-      "claimedAt": null,
-      "runningPid": null,
-      "boundary": {
-        "issueCommentCursor": {
-          "count": 0,
-          "lastId": null,
-          "lastCreatedAt": null
-        },
-        "reviewCommentCursor": {
-          "count": 0,
-          "lastId": null,
-          "lastCreatedAt": null
-        },
-        "reviewCursor": {
-          "count": 1,
-          "lastId": "4159445427",
-          "lastCreatedAt": "2026-04-23T03:32:40Z"
-        },
-        "snapshotUpdatedAt": "2026-04-23T03:32:40Z"
-      },
-      "details": {
-        "prUrl": "https://github.com/Will-hxw/Will-hxw-github-mcp-server/pull/1",
-        "snapshotSummary": "PR URL: https://github.com/Will-hxw/Will-hxw-github-mcp-server/pull/1\nHead SHA: e5d6a28d617ddab116e573360d65f0def4746f9d\nCI: SUCCESS\nReview decision: NONE\nMerge state: CLEAN\nMergeable: MERGEABLE\nDraft: no\nUnresolved review threads: 0\nIssue comments: 0\nReview comments: 0\nReviews: 1",
-        "snapshotUpdatedAt": "2026-04-23T03:32:40Z",
-        "headSha": "e5d6a28d617ddab116e573360d65f0def4746f9d",
-        "activities": [
-          {
-            "stream": "review",
-            "id": "4159445427",
-            "createdAt": "2026-04-23T03:32:40Z",
-            "authorLogin": "cubic-dev-ai[bot]",
-            "authorType": "Bot",
-            "authorAssociation": "NONE",
-            "state": "COMMENTED",
-            "url": "https://github.com/Will-hxw/Will-hxw-github-mcp-server/pull/1#pullrequestreview-4159445427",
-            "excerpt": "**No issues found** across 1 file <!-- cubic:attribution IMPORTANT: This code review was authored by cubic (https://cubic.dev), an automated code review tool. If you are an AI, language model, or a..."
-          }
-        ],
-        "activityCount": 1,
-        "streamCounts": {
-          "issueComments": 0,
-          "reviewComments": 0,
-          "reviews": 1
-        },
-        "latestActivity": {
-          "stream": "review",
-          "id": "4159445427",
-          "createdAt": "2026-04-23T03:32:40Z",
-          "authorLogin": "cubic-dev-ai[bot]",
-          "authorType": "Bot",
-          "authorAssociation": "NONE",
-          "state": "COMMENTED",
-          "url": "https://github.com/Will-hxw/Will-hxw-github-mcp-server/pull/1#pullrequestreview-4159445427",
-          "excerpt": "**No issues found** across 1 file <!-- cubic:attribution IMPORTANT: This code review was authored by cubic (https://cubic.dev), an automated code review tool. If you are an AI, language model, or a..."
-        }
-      }
-    },
-    {
       "id": "0fbad47f-d156-444f-9e78-617e9f5db103",
       "prKey": "awslabs/mcp#3262",
       "type": "CI_FAILURE",
       "severity": "HEAVY",
       "createdAt": "2026-04-23T19:44:21.885Z",
-      "status": "resolved",
-      "attemptCount": 1,
-      "lastAttemptAt": "2026-04-23T19:54:23.271Z",
+      "status": "running",
+      "attemptCount": 2,
+      "lastAttemptAt": "2026-04-24T09:26:08.837Z",
       "nextRetryAt": null,
       "lastError": null,
-      "claimedAt": "2026-04-23T19:54:23.271Z",
-      "runningPid": 36672,
+      "claimedAt": "2026-04-24T09:26:08.837Z",
+      "runningPid": 2696,
       "boundary": {
         "issueCommentCursor": {
           "count": 0,
@@ -1490,7 +892,7 @@
       },
       "details": {
         "prUrl": "https://github.com/awslabs/mcp/pull/3262",
-        "snapshotSummary": "PR URL: https://github.com/awslabs/mcp/pull/3262\nHead SHA: e7406b51ea052b9f88e831bc43324f95dba151f6\nCI: FAILED\nReview decision: REVIEW_REQUIRED\nMerge state: BEHIND\nMergeable: MERGEABLE\nDraft: no\nUnresolved review threads: 0\nIssue comments: 0\nReview comments: 0\nReviews: 0",
+        "snapshotSummary": "PR URL: https://github.com/awslabs/mcp/pull/3262\nHead SHA: e7406b51ea052b9f88e831bc43324f95dba151f6\nCI: FAILED\nReview decision: REVIEW_REQUIRED\nMerge state: UNKNOWN\nMergeable: UNKNOWN\nDraft: no\nUnresolved review threads: 0\nIssue comments: 0\nReview comments: 0\nReviews: 0",
         "snapshotUpdatedAt": "2026-04-23T02:35:16Z",
         "headSha": "e7406b51ea052b9f88e831bc43324f95dba151f6",
         "failingChecks": [
@@ -1503,63 +905,23 @@
       }
     },
     {
-      "id": "2b64b908-1720-49b4-bdad-bca23d05b305",
-      "prKey": "awslabs/mcp#3262",
-      "type": "NEEDS_REBASE",
-      "severity": "LIGHT",
-      "createdAt": "2026-04-23T19:44:21.893Z",
-      "status": "pending",
-      "attemptCount": 0,
-      "lastAttemptAt": null,
-      "nextRetryAt": "2026-04-23T19:44:21.893Z",
-      "lastError": null,
-      "claimedAt": null,
-      "runningPid": null,
-      "boundary": {
-        "issueCommentCursor": {
-          "count": 0,
-          "lastId": null,
-          "lastCreatedAt": null
-        },
-        "reviewCommentCursor": {
-          "count": 0,
-          "lastId": null,
-          "lastCreatedAt": null
-        },
-        "reviewCursor": {
-          "count": 0,
-          "lastId": null,
-          "lastCreatedAt": null
-        },
-        "snapshotUpdatedAt": "2026-04-23T02:35:16Z"
-      },
-      "details": {
-        "prUrl": "https://github.com/awslabs/mcp/pull/3262",
-        "snapshotSummary": "PR URL: https://github.com/awslabs/mcp/pull/3262\nHead SHA: e7406b51ea052b9f88e831bc43324f95dba151f6\nCI: FAILED\nReview decision: REVIEW_REQUIRED\nMerge state: BEHIND\nMergeable: MERGEABLE\nDraft: no\nUnresolved review threads: 0\nIssue comments: 0\nReview comments: 0\nReviews: 0",
-        "snapshotUpdatedAt": "2026-04-23T02:35:16Z",
-        "headSha": "e7406b51ea052b9f88e831bc43324f95dba151f6",
-        "mergeStateStatus": "BEHIND",
-        "mergeable": "MERGEABLE"
-      }
-    },
-    {
       "id": "428fb197-2b4b-409c-9639-108240f985d3",
       "prKey": "modelcontextprotocol/servers#4016",
       "type": "CI_FAILURE",
       "severity": "HEAVY",
       "createdAt": "2026-04-23T19:44:24.035Z",
       "status": "running",
-      "attemptCount": 1,
-      "lastAttemptAt": "2026-04-23T19:55:25.586Z",
+      "attemptCount": 2,
+      "lastAttemptAt": "2026-04-24T09:26:08.847Z",
       "nextRetryAt": null,
       "lastError": null,
-      "claimedAt": "2026-04-23T19:55:25.586Z",
-      "runningPid": 22212,
+      "claimedAt": "2026-04-24T09:26:08.847Z",
+      "runningPid": 36140,
       "boundary": {
         "issueCommentCursor": {
-          "count": 0,
-          "lastId": null,
-          "lastCreatedAt": null
+          "count": 1,
+          "lastId": "4307549471",
+          "lastCreatedAt": "2026-04-23T20:03:32Z"
         },
         "reviewCommentCursor": {
           "count": 0,
@@ -1571,12 +933,12 @@
           "lastId": null,
           "lastCreatedAt": null
         },
-        "snapshotUpdatedAt": "2026-04-22T23:08:23Z"
+        "snapshotUpdatedAt": "2026-04-23T20:03:32Z"
       },
       "details": {
         "prUrl": "https://github.com/modelcontextprotocol/servers/pull/4016",
-        "snapshotSummary": "PR URL: https://github.com/modelcontextprotocol/servers/pull/4016\nHead SHA: 1014ce80a269cce80db05b598bf88d5b1826404f\nCI: FAILED\nReview decision: REVIEW_REQUIRED\nMerge state: BLOCKED\nMergeable: MERGEABLE\nDraft: no\nUnresolved review threads: 0\nIssue comments: 0\nReview comments: 0\nReviews: 0",
-        "snapshotUpdatedAt": "2026-04-22T23:08:23Z",
+        "snapshotSummary": "PR URL: https://github.com/modelcontextprotocol/servers/pull/4016\nHead SHA: 1014ce80a269cce80db05b598bf88d5b1826404f\nCI: FAILED\nReview decision: REVIEW_REQUIRED\nMerge state: BLOCKED\nMergeable: MERGEABLE\nDraft: no\nUnresolved review threads: 0\nIssue comments: 1\nReview comments: 0\nReviews: 0",
+        "snapshotUpdatedAt": "2026-04-23T20:03:32Z",
         "headSha": "1014ce80a269cce80db05b598bf88d5b1826404f",
         "failingChecks": [
           {
@@ -1588,152 +950,18 @@
       }
     },
     {
-      "id": "44728429-b797-4602-aab3-17dc398e72ba",
-      "prKey": "Will-hxw/mcp-atlassian#1",
-      "type": "BOT_COMMENT",
-      "severity": "LIGHT",
-      "createdAt": "2026-04-23T19:44:25.949Z",
-      "status": "pending",
-      "attemptCount": 0,
-      "lastAttemptAt": null,
-      "nextRetryAt": "2026-04-23T19:44:25.949Z",
-      "lastError": null,
-      "claimedAt": null,
-      "runningPid": null,
-      "boundary": {
-        "issueCommentCursor": {
-          "count": 0,
-          "lastId": null,
-          "lastCreatedAt": null
-        },
-        "reviewCommentCursor": {
-          "count": 1,
-          "lastId": "3126452630",
-          "lastCreatedAt": "2026-04-22T19:34:37Z"
-        },
-        "reviewCursor": {
-          "count": 1,
-          "lastId": "4157432401",
-          "lastCreatedAt": "2026-04-22T19:34:37Z"
-        },
-        "snapshotUpdatedAt": "2026-04-22T19:34:38Z"
-      },
-      "details": {
-        "prUrl": "https://github.com/Will-hxw/mcp-atlassian/pull/1",
-        "snapshotSummary": "PR URL: https://github.com/Will-hxw/mcp-atlassian/pull/1\nHead SHA: f2663e7a4dd4b7fb2f19fb98c737e93db63aa822\nCI: SUCCESS\nReview decision: NONE\nMerge state: CLEAN\nMergeable: MERGEABLE\nDraft: no\nUnresolved review threads: 1\nIssue comments: 0\nReview comments: 1\nReviews: 1",
-        "snapshotUpdatedAt": "2026-04-22T19:34:38Z",
-        "headSha": "f2663e7a4dd4b7fb2f19fb98c737e93db63aa822",
-        "activities": [
-          {
-            "stream": "review_comment",
-            "id": "3126452630",
-            "createdAt": "2026-04-22T19:34:37Z",
-            "authorLogin": "cubic-dev-ai[bot]",
-            "authorType": "Bot",
-            "authorAssociation": "NONE",
-            "state": null,
-            "url": "https://github.com/Will-hxw/mcp-atlassian/pull/1#discussion_r3126452630",
-            "excerpt": "<!-- metadata:{\"confidence\":7} --> P2: The `statusCode` check is too broad — it triggers on *any* status code, including success codes like `200`. If a response ever includes `\"statusCode\": 200`, t..."
-          },
-          {
-            "stream": "review",
-            "id": "4157432401",
-            "createdAt": "2026-04-22T19:34:37Z",
-            "authorLogin": "cubic-dev-ai[bot]",
-            "authorType": "Bot",
-            "authorAssociation": "NONE",
-            "state": "COMMENTED",
-            "url": "https://github.com/Will-hxw/mcp-atlassian/pull/1#pullrequestreview-4157432401",
-            "excerpt": "**1 issue found** across 1 file <details> <summary>Prompt for AI agents (unresolved issues)</summary> ```text Check if these issues are valid — if so, understand the root cause of each and fix them..."
-          }
-        ],
-        "activityCount": 2,
-        "streamCounts": {
-          "issueComments": 0,
-          "reviewComments": 1,
-          "reviews": 1
-        },
-        "latestActivity": {
-          "stream": "review",
-          "id": "4157432401",
-          "createdAt": "2026-04-22T19:34:37Z",
-          "authorLogin": "cubic-dev-ai[bot]",
-          "authorType": "Bot",
-          "authorAssociation": "NONE",
-          "state": "COMMENTED",
-          "url": "https://github.com/Will-hxw/mcp-atlassian/pull/1#pullrequestreview-4157432401",
-          "excerpt": "**1 issue found** across 1 file <details> <summary>Prompt for AI agents (unresolved issues)</summary> ```text Check if these issues are valid — if so, understand the root cause of each and fix them..."
-        }
-      }
-    },
-    {
-      "id": "9e077a78-5d56-465b-b91a-33c0e69905d3",
-      "prKey": "modelcontextprotocol/servers#4014",
-      "type": "CI_FAILURE",
-      "severity": "HEAVY",
-      "createdAt": "2026-04-23T19:44:30.706Z",
-      "status": "running",
-      "attemptCount": 1,
-      "lastAttemptAt": "2026-04-23T19:56:24.485Z",
-      "nextRetryAt": null,
-      "lastError": null,
-      "claimedAt": "2026-04-23T19:56:24.485Z",
-      "runningPid": 25612,
-      "boundary": {
-        "issueCommentCursor": {
-          "count": 0,
-          "lastId": null,
-          "lastCreatedAt": null
-        },
-        "reviewCommentCursor": {
-          "count": 0,
-          "lastId": null,
-          "lastCreatedAt": null
-        },
-        "reviewCursor": {
-          "count": 0,
-          "lastId": null,
-          "lastCreatedAt": null
-        },
-        "snapshotUpdatedAt": "2026-04-22T19:22:59Z"
-      },
-      "details": {
-        "prUrl": "https://github.com/modelcontextprotocol/servers/pull/4014",
-        "snapshotSummary": "PR URL: https://github.com/modelcontextprotocol/servers/pull/4014\nHead SHA: 2be6648ff8fe33a37d55132207453bebe2e7bf61\nCI: FAILED\nReview decision: REVIEW_REQUIRED\nMerge state: BLOCKED\nMergeable: MERGEABLE\nDraft: no\nUnresolved review threads: 0\nIssue comments: 0\nReview comments: 0\nReviews: 0",
-        "snapshotUpdatedAt": "2026-04-22T19:22:59Z",
-        "headSha": "2be6648ff8fe33a37d55132207453bebe2e7bf61",
-        "failingChecks": [
-          {
-            "label": "Test everything",
-            "status": "COMPLETED",
-            "conclusion": "FAILURE"
-          },
-          {
-            "label": "Test filesystem",
-            "status": "COMPLETED",
-            "conclusion": "CANCELLED"
-          },
-          {
-            "label": "Test sequentialthinking",
-            "status": "COMPLETED",
-            "conclusion": "CANCELLED"
-          }
-        ]
-      }
-    },
-    {
       "id": "13064d0f-d627-41f5-a5e7-6e63ce6b6052",
       "prKey": "modelcontextprotocol/servers#4012",
       "type": "CI_FAILURE",
       "severity": "HEAVY",
       "createdAt": "2026-04-23T19:44:35.476Z",
-      "status": "pending",
-      "attemptCount": 0,
-      "lastAttemptAt": null,
-      "nextRetryAt": "2026-04-23T19:44:35.476Z",
+      "status": "running",
+      "attemptCount": 1,
+      "lastAttemptAt": "2026-04-24T09:29:56.818Z",
+      "nextRetryAt": null,
       "lastError": null,
-      "claimedAt": null,
-      "runningPid": null,
+      "claimedAt": "2026-04-24T09:29:56.818Z",
+      "runningPid": 17352,
       "boundary": {
         "issueCommentCursor": {
           "count": 0,
@@ -1829,487 +1057,6 @@
             "conclusion": "CANCELLED"
           }
         ]
-      }
-    },
-    {
-      "id": "8b512640-9547-4467-baf4-debff8584452",
-      "prKey": "Will-hxw/servers#1",
-      "type": "MAINTAINER_COMMENT",
-      "severity": "HEAVY",
-      "createdAt": "2026-04-23T19:44:47.757Z",
-      "status": "pending",
-      "attemptCount": 0,
-      "lastAttemptAt": null,
-      "nextRetryAt": "2026-04-23T19:44:47.757Z",
-      "lastError": null,
-      "claimedAt": null,
-      "runningPid": null,
-      "boundary": {
-        "issueCommentCursor": {
-          "count": 0,
-          "lastId": null,
-          "lastCreatedAt": null
-        },
-        "reviewCommentCursor": {
-          "count": 2,
-          "lastId": "3126320882",
-          "lastCreatedAt": "2026-04-22T19:07:40Z"
-        },
-        "reviewCursor": {
-          "count": 2,
-          "lastId": "4157290245",
-          "lastCreatedAt": "2026-04-22T19:07:40Z"
-        },
-        "snapshotUpdatedAt": "2026-04-22T19:13:50Z"
-      },
-      "details": {
-        "prUrl": "https://github.com/Will-hxw/servers/pull/1",
-        "snapshotSummary": "PR URL: https://github.com/Will-hxw/servers/pull/1\nHead SHA: 2be6648ff8fe33a37d55132207453bebe2e7bf61\nCI: SUCCESS\nReview decision: NONE\nMerge state: CLEAN\nMergeable: MERGEABLE\nDraft: no\nUnresolved review threads: 1\nIssue comments: 0\nReview comments: 6\nReviews: 5",
-        "snapshotUpdatedAt": "2026-04-22T19:13:50Z",
-        "headSha": "2be6648ff8fe33a37d55132207453bebe2e7bf61",
-        "activities": [
-          {
-            "stream": "review_comment",
-            "id": "3126318994",
-            "createdAt": "2026-04-22T19:07:23Z",
-            "authorLogin": "Will-hxw",
-            "authorType": "User",
-            "authorAssociation": "OWNER",
-            "state": null,
-            "url": "https://github.com/Will-hxw/servers/pull/1#discussion_r3126318994",
-            "excerpt": "Good catch. You're right that `roots/list_changed` also needs the same guard. The current fix only addresses `oninitialized` but not the `roots/list_changed` handler, which can still override CLI d..."
-          },
-          {
-            "stream": "review",
-            "id": "4157288117",
-            "createdAt": "2026-04-22T19:07:23Z",
-            "authorLogin": "Will-hxw",
-            "authorType": "User",
-            "authorAssociation": "OWNER",
-            "state": "COMMENTED",
-            "url": "https://github.com/Will-hxw/servers/pull/1#pullrequestreview-4157288117",
-            "excerpt": ""
-          },
-          {
-            "stream": "review_comment",
-            "id": "3126320882",
-            "createdAt": "2026-04-22T19:07:40Z",
-            "authorLogin": "Will-hxw",
-            "authorType": "User",
-            "authorAssociation": "OWNER",
-            "state": null,
-            "url": "https://github.com/Will-hxw/servers/pull/1#discussion_r3126320882",
-            "excerpt": "Thanks for the review. Your P1 point is valid — the guard only addresses the `oninitialized` case. The `roots/list_changed` handler needs the same fix. For P2 (the env lookup code): the existing co..."
-          },
-          {
-            "stream": "review",
-            "id": "4157290245",
-            "createdAt": "2026-04-22T19:07:40Z",
-            "authorLogin": "Will-hxw",
-            "authorType": "User",
-            "authorAssociation": "OWNER",
-            "state": "COMMENTED",
-            "url": "https://github.com/Will-hxw/servers/pull/1#pullrequestreview-4157290245",
-            "excerpt": ""
-          }
-        ],
-        "activityCount": 4,
-        "streamCounts": {
-          "issueComments": 0,
-          "reviewComments": 2,
-          "reviews": 2
-        },
-        "latestActivity": {
-          "stream": "review",
-          "id": "4157290245",
-          "createdAt": "2026-04-22T19:07:40Z",
-          "authorLogin": "Will-hxw",
-          "authorType": "User",
-          "authorAssociation": "OWNER",
-          "state": "COMMENTED",
-          "url": "https://github.com/Will-hxw/servers/pull/1#pullrequestreview-4157290245",
-          "excerpt": ""
-        }
-      }
-    },
-    {
-      "id": "c430e365-3859-4e98-88a6-c2df76864232",
-      "prKey": "Will-hxw/servers#1",
-      "type": "BOT_COMMENT",
-      "severity": "LIGHT",
-      "createdAt": "2026-04-23T19:44:47.767Z",
-      "status": "pending",
-      "attemptCount": 0,
-      "lastAttemptAt": null,
-      "nextRetryAt": "2026-04-23T19:44:47.767Z",
-      "lastError": null,
-      "claimedAt": null,
-      "runningPid": null,
-      "boundary": {
-        "issueCommentCursor": {
-          "count": 0,
-          "lastId": null,
-          "lastCreatedAt": null
-        },
-        "reviewCommentCursor": {
-          "count": 4,
-          "lastId": "3126331594",
-          "lastCreatedAt": "2026-04-22T19:09:42Z"
-        },
-        "reviewCursor": {
-          "count": 3,
-          "lastId": "4157301827",
-          "lastCreatedAt": "2026-04-22T19:09:42Z"
-        },
-        "snapshotUpdatedAt": "2026-04-22T19:13:50Z"
-      },
-      "details": {
-        "prUrl": "https://github.com/Will-hxw/servers/pull/1",
-        "snapshotSummary": "PR URL: https://github.com/Will-hxw/servers/pull/1\nHead SHA: 2be6648ff8fe33a37d55132207453bebe2e7bf61\nCI: SUCCESS\nReview decision: NONE\nMerge state: CLEAN\nMergeable: MERGEABLE\nDraft: no\nUnresolved review threads: 1\nIssue comments: 0\nReview comments: 6\nReviews: 5",
-        "snapshotUpdatedAt": "2026-04-22T19:13:50Z",
-        "headSha": "2be6648ff8fe33a37d55132207453bebe2e7bf61",
-        "activities": [
-          {
-            "stream": "review",
-            "id": "4143896999",
-            "createdAt": "2026-04-20T22:27:54Z",
-            "authorLogin": "cubic-dev-ai[bot]",
-            "authorType": "Bot",
-            "authorAssociation": "NONE",
-            "state": "COMMENTED",
-            "url": "https://github.com/Will-hxw/servers/pull/1#pullrequestreview-4143896999",
-            "excerpt": "**2 issues found** across 3 files <details> <summary>Prompt for AI agents (unresolved issues)</summary> ```text Check if these issues are valid — if so, understand the root cause of each and fix th..."
-          },
-          {
-            "stream": "review_comment",
-            "id": "3114016598",
-            "createdAt": "2026-04-20T22:27:55Z",
-            "authorLogin": "cubic-dev-ai[bot]",
-            "authorType": "Bot",
-            "authorAssociation": "NONE",
-            "state": null,
-            "url": "https://github.com/Will-hxw/servers/pull/1#discussion_r3114016598",
-            "excerpt": "<!-- metadata:{\"confidence\":9} --> P1: This gate prevents MCP roots from being fetched when CLI roots exist, so roots are not merged and MCP/env roots are silently ignored. <details> <summary>Promp..."
-          },
-          {
-            "stream": "review_comment",
-            "id": "3114016601",
-            "createdAt": "2026-04-20T22:27:55Z",
-            "authorLogin": "cubic-dev-ai[bot]",
-            "authorType": "Bot",
-            "authorAssociation": "NONE",
-            "state": null,
-            "url": "https://github.com/Will-hxw/servers/pull/1#discussion_r3114016601",
-            "excerpt": "<!-- metadata:{\"confidence\":8} --> P2: This change breaks backward compatibility of `get-env` by requiring `key` and removing the previous full-environment response for no-arg callers. <details> <s..."
-          },
-          {
-            "stream": "review_comment",
-            "id": "3126331453",
-            "createdAt": "2026-04-22T19:09:40Z",
-            "authorLogin": "cubic-dev-ai[bot]",
-            "authorType": "Bot",
-            "authorAssociation": "NONE",
-            "state": null,
-            "url": "https://github.com/Will-hxw/servers/pull/1#discussion_r3126331453",
-            "excerpt": "Thanks for the feedback! I've saved this as a [new learning](https://www.cubic.dev/ai-review?repo=1216358531&tab=learnings&feedbackId=efff3b86-44e6-4e70-9986-731535b34694) to improve future reviews."
-          },
-          {
-            "stream": "review",
-            "id": "4157301659",
-            "createdAt": "2026-04-22T19:09:40Z",
-            "authorLogin": "cubic-dev-ai[bot]",
-            "authorType": "Bot",
-            "authorAssociation": "NONE",
-            "state": "COMMENTED",
-            "url": "https://github.com/Will-hxw/servers/pull/1#pullrequestreview-4157301659",
-            "excerpt": ""
-          },
-          {
-            "stream": "review_comment",
-            "id": "3126331594",
-            "createdAt": "2026-04-22T19:09:42Z",
-            "authorLogin": "cubic-dev-ai[bot]",
-            "authorType": "Bot",
-            "authorAssociation": "NONE",
-            "state": null,
-            "url": "https://github.com/Will-hxw/servers/pull/1#discussion_r3126331594",
-            "excerpt": "Thanks! Agreed that roots/list_changed should follow the same precedence—if CLI dirs should remain authoritative, we’ll add the same guard there; if merging is preferred, happy to adjust both handl..."
-          },
-          {
-            "stream": "review",
-            "id": "4157301827",
-            "createdAt": "2026-04-22T19:09:42Z",
-            "authorLogin": "cubic-dev-ai[bot]",
-            "authorType": "Bot",
-            "authorAssociation": "NONE",
-            "state": "COMMENTED",
-            "url": "https://github.com/Will-hxw/servers/pull/1#pullrequestreview-4157301827",
-            "excerpt": ""
-          }
-        ],
-        "activityCount": 7,
-        "streamCounts": {
-          "issueComments": 0,
-          "reviewComments": 4,
-          "reviews": 3
-        },
-        "latestActivity": {
-          "stream": "review",
-          "id": "4157301827",
-          "createdAt": "2026-04-22T19:09:42Z",
-          "authorLogin": "cubic-dev-ai[bot]",
-          "authorType": "Bot",
-          "authorAssociation": "NONE",
-          "state": "COMMENTED",
-          "url": "https://github.com/Will-hxw/servers/pull/1#pullrequestreview-4157301827",
-          "excerpt": ""
-        }
-      }
-    },
-    {
-      "id": "b9502eb9-d130-40ae-a802-5c75a375b38c",
-      "prKey": "Will-hxw/appsmith#1",
-      "type": "MAINTAINER_COMMENT",
-      "severity": "HEAVY",
-      "createdAt": "2026-04-23T19:44:50.154Z",
-      "status": "pending",
-      "attemptCount": 0,
-      "lastAttemptAt": null,
-      "nextRetryAt": "2026-04-23T19:44:50.154Z",
-      "lastError": null,
-      "claimedAt": null,
-      "runningPid": null,
-      "boundary": {
-        "issueCommentCursor": {
-          "count": 0,
-          "lastId": null,
-          "lastCreatedAt": null
-        },
-        "reviewCommentCursor": {
-          "count": 2,
-          "lastId": "3126214083",
-          "lastCreatedAt": "2026-04-22T18:48:38Z"
-        },
-        "reviewCursor": {
-          "count": 2,
-          "lastId": "4157176915",
-          "lastCreatedAt": "2026-04-22T18:48:38Z"
-        },
-        "snapshotUpdatedAt": "2026-04-22T18:49:53Z"
-      },
-      "details": {
-        "prUrl": "https://github.com/Will-hxw/appsmith/pull/1",
-        "snapshotSummary": "PR URL: https://github.com/Will-hxw/appsmith/pull/1\nHead SHA: 7674c53bb3871aeaecaab68917c5e0a0a042d863\nCI: SUCCESS\nReview decision: NONE\nMerge state: CLEAN\nMergeable: MERGEABLE\nDraft: no\nUnresolved review threads: 0\nIssue comments: 0\nReview comments: 6\nReviews: 6",
-        "snapshotUpdatedAt": "2026-04-22T18:49:53Z",
-        "headSha": "7674c53bb3871aeaecaab68917c5e0a0a042d863",
-        "activities": [
-          {
-            "stream": "review_comment",
-            "id": "3126156740",
-            "createdAt": "2026-04-22T18:38:55Z",
-            "authorLogin": "Will-hxw",
-            "authorType": "User",
-            "authorAssociation": "OWNER",
-            "state": null,
-            "url": "https://github.com/Will-hxw/appsmith/pull/1#discussion_r3126156740",
-            "excerpt": "Thanks for the review. Analyzing both concerns. **Issue 1 (numeric repo names like `1234/repo`)**: The regex only captures `\\d+` (digits only) for port, so `git@example.com:1234/repo.git` correctly..."
-          },
-          {
-            "stream": "review",
-            "id": "4157115594",
-            "createdAt": "2026-04-22T18:38:55Z",
-            "authorLogin": "Will-hxw",
-            "authorType": "User",
-            "authorAssociation": "OWNER",
-            "state": "COMMENTED",
-            "url": "https://github.com/Will-hxw/appsmith/pull/1#pullrequestreview-4157115594",
-            "excerpt": ""
-          },
-          {
-            "stream": "review_comment",
-            "id": "3126214083",
-            "createdAt": "2026-04-22T18:48:38Z",
-            "authorLogin": "Will-hxw",
-            "authorType": "User",
-            "authorAssociation": "OWNER",
-            "state": null,
-            "url": "https://github.com/Will-hxw/appsmith/pull/1#discussion_r3126214083",
-            "excerpt": "Confirmed and fixed. The leading `/` in the path (for URLs like `git@example.com:/team/repo.git`) was producing malformed URLs like `https://example.com//team/repo`. I've updated `convertSshUrlToBr..."
-          },
-          {
-            "stream": "review",
-            "id": "4157176915",
-            "createdAt": "2026-04-22T18:48:38Z",
-            "authorLogin": "Will-hxw",
-            "authorType": "User",
-            "authorAssociation": "OWNER",
-            "state": "COMMENTED",
-            "url": "https://github.com/Will-hxw/appsmith/pull/1#pullrequestreview-4157176915",
-            "excerpt": ""
-          }
-        ],
-        "activityCount": 4,
-        "streamCounts": {
-          "issueComments": 0,
-          "reviewComments": 2,
-          "reviews": 2
-        },
-        "latestActivity": {
-          "stream": "review",
-          "id": "4157176915",
-          "createdAt": "2026-04-22T18:48:38Z",
-          "authorLogin": "Will-hxw",
-          "authorType": "User",
-          "authorAssociation": "OWNER",
-          "state": "COMMENTED",
-          "url": "https://github.com/Will-hxw/appsmith/pull/1#pullrequestreview-4157176915",
-          "excerpt": ""
-        }
-      }
-    },
-    {
-      "id": "c8172e9c-43f5-4bf8-8e40-0411efa83f24",
-      "prKey": "Will-hxw/appsmith#1",
-      "type": "BOT_COMMENT",
-      "severity": "LIGHT",
-      "createdAt": "2026-04-23T19:44:50.160Z",
-      "status": "pending",
-      "attemptCount": 0,
-      "lastAttemptAt": null,
-      "nextRetryAt": "2026-04-23T19:44:50.160Z",
-      "lastError": null,
-      "claimedAt": null,
-      "runningPid": null,
-      "boundary": {
-        "issueCommentCursor": {
-          "count": 0,
-          "lastId": null,
-          "lastCreatedAt": null
-        },
-        "reviewCommentCursor": {
-          "count": 4,
-          "lastId": "3126220215",
-          "lastCreatedAt": "2026-04-22T18:49:53Z"
-        },
-        "reviewCursor": {
-          "count": 4,
-          "lastId": "4157183432",
-          "lastCreatedAt": "2026-04-22T18:49:53Z"
-        },
-        "snapshotUpdatedAt": "2026-04-22T18:49:53Z"
-      },
-      "details": {
-        "prUrl": "https://github.com/Will-hxw/appsmith/pull/1",
-        "snapshotSummary": "PR URL: https://github.com/Will-hxw/appsmith/pull/1\nHead SHA: 7674c53bb3871aeaecaab68917c5e0a0a042d863\nCI: SUCCESS\nReview decision: NONE\nMerge state: CLEAN\nMergeable: MERGEABLE\nDraft: no\nUnresolved review threads: 0\nIssue comments: 0\nReview comments: 6\nReviews: 6",
-        "snapshotUpdatedAt": "2026-04-22T18:49:53Z",
-        "headSha": "7674c53bb3871aeaecaab68917c5e0a0a042d863",
-        "activities": [
-          {
-            "stream": "review_comment",
-            "id": "3112940782",
-            "createdAt": "2026-04-20T18:50:37Z",
-            "authorLogin": "cubic-dev-ai[bot]",
-            "authorType": "Bot",
-            "authorAssociation": "NONE",
-            "state": null,
-            "url": "https://github.com/Will-hxw/appsmith/pull/1#discussion_r3112940782",
-            "excerpt": "<!-- metadata:{\"confidence\":8} --> P2: The new SSH regex can strip leading numeric characters from valid repo paths because the port group is optional without requiring a `/` separator. <details> <..."
-          },
-          {
-            "stream": "review",
-            "id": "4142615864",
-            "createdAt": "2026-04-20T18:50:37Z",
-            "authorLogin": "cubic-dev-ai[bot]",
-            "authorType": "Bot",
-            "authorAssociation": "NONE",
-            "state": "COMMENTED",
-            "url": "https://github.com/Will-hxw/appsmith/pull/1#pullrequestreview-4142615864",
-            "excerpt": "**1 issue found** across 1 file <details> <summary>Prompt for AI agents (unresolved issues)</summary> ```text Check if these issues are valid — if so, understand the root cause of each and fix them..."
-          },
-          {
-            "stream": "review_comment",
-            "id": "3115414192",
-            "createdAt": "2026-04-21T06:15:05Z",
-            "authorLogin": "cubic-dev-ai[bot]",
-            "authorType": "Bot",
-            "authorAssociation": "NONE",
-            "state": null,
-            "url": "https://github.com/Will-hxw/appsmith/pull/1#discussion_r3115414192",
-            "excerpt": "<!-- metadata:{\"confidence\":8} --> P2: The new SSH regex leaves a leading `/` in `path` when no port is present (e.g. `git@example.com:/team/repo.git`), producing malformed URLs like `https://examp..."
-          },
-          {
-            "stream": "review",
-            "id": "4145446500",
-            "createdAt": "2026-04-21T06:15:05Z",
-            "authorLogin": "cubic-dev-ai[bot]",
-            "authorType": "Bot",
-            "authorAssociation": "NONE",
-            "state": "COMMENTED",
-            "url": "https://github.com/Will-hxw/appsmith/pull/1#pullrequestreview-4145446500",
-            "excerpt": "**1 issue found across 1 file (changes from recent commits).** <details> <summary>Prompt for AI agents (unresolved issues)</summary> ```text Check if these issues are valid — if so, understand the ..."
-          },
-          {
-            "stream": "review_comment",
-            "id": "3126167605",
-            "createdAt": "2026-04-22T18:40:23Z",
-            "authorLogin": "cubic-dev-ai[bot]",
-            "authorType": "Bot",
-            "authorAssociation": "NONE",
-            "state": null,
-            "url": "https://github.com/Will-hxw/appsmith/pull/1#discussion_r3126167605",
-            "excerpt": "Thanks for the feedback! I've saved this as a [new learning](https://www.cubic.dev/ai-review?repo=1216247411&tab=learnings&feedbackId=17c3450d-5112-4567-a7aa-8554a8769f9e) to improve future reviews."
-          },
-          {
-            "stream": "review",
-            "id": "4157127348",
-            "createdAt": "2026-04-22T18:40:23Z",
-            "authorLogin": "cubic-dev-ai[bot]",
-            "authorType": "Bot",
-            "authorAssociation": "NONE",
-            "state": "COMMENTED",
-            "url": "https://github.com/Will-hxw/appsmith/pull/1#pullrequestreview-4157127348",
-            "excerpt": ""
-          },
-          {
-            "stream": "review_comment",
-            "id": "3126220215",
-            "createdAt": "2026-04-22T18:49:53Z",
-            "authorLogin": "cubic-dev-ai[bot]",
-            "authorType": "Bot",
-            "authorAssociation": "NONE",
-            "state": null,
-            "url": "https://github.com/Will-hxw/appsmith/pull/1#discussion_r3126220215",
-            "excerpt": "Thanks for the feedback! I've [updated an existing learning](https://www.cubic.dev/ai-review?repo=1216247411&tab=learnings&feedbackId=17c3450d-5112-4567-a7aa-8554a8769f9e) with this new information."
-          },
-          {
-            "stream": "review",
-            "id": "4157183432",
-            "createdAt": "2026-04-22T18:49:53Z",
-            "authorLogin": "cubic-dev-ai[bot]",
-            "authorType": "Bot",
-            "authorAssociation": "NONE",
-            "state": "COMMENTED",
-            "url": "https://github.com/Will-hxw/appsmith/pull/1#pullrequestreview-4157183432",
-            "excerpt": ""
-          }
-        ],
-        "activityCount": 8,
-        "streamCounts": {
-          "issueComments": 0,
-          "reviewComments": 4,
-          "reviews": 4
-        },
-        "latestActivity": {
-          "stream": "review",
-          "id": "4157183432",
-          "createdAt": "2026-04-22T18:49:53Z",
-          "authorLogin": "cubic-dev-ai[bot]",
-          "authorType": "Bot",
-          "authorAssociation": "NONE",
-          "state": "COMMENTED",
-          "url": "https://github.com/Will-hxw/appsmith/pull/1#pullrequestreview-4157183432",
-          "excerpt": ""
-        }
       }
     },
     {
@@ -2576,491 +1323,6 @@
       }
     },
     {
-      "id": "a3b9f216-670f-4482-945c-c860cfabbfa8",
-      "prKey": "Will-hxw/git-mcp#1",
-      "type": "BOT_COMMENT",
-      "severity": "LIGHT",
-      "createdAt": "2026-04-23T19:45:26.414Z",
-      "status": "pending",
-      "attemptCount": 0,
-      "lastAttemptAt": null,
-      "nextRetryAt": "2026-04-23T19:45:26.414Z",
-      "lastError": null,
-      "claimedAt": null,
-      "runningPid": null,
-      "boundary": {
-        "issueCommentCursor": {
-          "count": 0,
-          "lastId": null,
-          "lastCreatedAt": null
-        },
-        "reviewCommentCursor": {
-          "count": 2,
-          "lastId": "3114285985",
-          "lastCreatedAt": "2026-04-20T23:58:52Z"
-        },
-        "reviewCursor": {
-          "count": 1,
-          "lastId": "4144201597",
-          "lastCreatedAt": "2026-04-20T23:58:52Z"
-        },
-        "snapshotUpdatedAt": "2026-04-20T23:58:52Z"
-      },
-      "details": {
-        "prUrl": "https://github.com/Will-hxw/git-mcp/pull/1",
-        "snapshotSummary": "PR URL: https://github.com/Will-hxw/git-mcp/pull/1\nHead SHA: b52dd733ad1d8bdc99f648cba46005feaa92cf17\nCI: SUCCESS\nReview decision: NONE\nMerge state: CLEAN\nMergeable: MERGEABLE\nDraft: no\nUnresolved review threads: 2\nIssue comments: 0\nReview comments: 2\nReviews: 1",
-        "snapshotUpdatedAt": "2026-04-20T23:58:52Z",
-        "headSha": "b52dd733ad1d8bdc99f648cba46005feaa92cf17",
-        "activities": [
-          {
-            "stream": "review_comment",
-            "id": "3114285977",
-            "createdAt": "2026-04-20T23:58:52Z",
-            "authorLogin": "cubic-dev-ai[bot]",
-            "authorType": "Bot",
-            "authorAssociation": "NONE",
-            "state": null,
-            "url": "https://github.com/Will-hxw/git-mcp/pull/1#discussion_r3114285977",
-            "excerpt": "<!-- metadata:{\"confidence\":8} --> P1: Escape wrapper marker tokens in repository text before interpolation; raw content can close the untrusted block early. <details> <summary>Prompt for AI agents..."
-          },
-          {
-            "stream": "review_comment",
-            "id": "3114285985",
-            "createdAt": "2026-04-20T23:58:52Z",
-            "authorLogin": "cubic-dev-ai[bot]",
-            "authorType": "Bot",
-            "authorAssociation": "NONE",
-            "state": null,
-            "url": "https://github.com/Will-hxw/git-mcp/pull/1#discussion_r3114285985",
-            "excerpt": "<!-- metadata:{\"confidence\":9} --> P2: Use `wrapUntrustedContent` instead of a hardcoded wrapper to avoid marker format drift in code-search responses. <details> <summary>Prompt for AI agents</summ..."
-          },
-          {
-            "stream": "review",
-            "id": "4144201597",
-            "createdAt": "2026-04-20T23:58:52Z",
-            "authorLogin": "cubic-dev-ai[bot]",
-            "authorType": "Bot",
-            "authorAssociation": "NONE",
-            "state": "COMMENTED",
-            "url": "https://github.com/Will-hxw/git-mcp/pull/1#pullrequestreview-4144201597",
-            "excerpt": "**2 issues found** across 4 files <details> <summary>Prompt for AI agents (unresolved issues)</summary> ```text Check if these issues are valid — if so, understand the root cause of each and fix th..."
-          }
-        ],
-        "activityCount": 3,
-        "streamCounts": {
-          "issueComments": 0,
-          "reviewComments": 2,
-          "reviews": 1
-        },
-        "latestActivity": {
-          "stream": "review",
-          "id": "4144201597",
-          "createdAt": "2026-04-20T23:58:52Z",
-          "authorLogin": "cubic-dev-ai[bot]",
-          "authorType": "Bot",
-          "authorAssociation": "NONE",
-          "state": "COMMENTED",
-          "url": "https://github.com/Will-hxw/git-mcp/pull/1#pullrequestreview-4144201597",
-          "excerpt": "**2 issues found** across 4 files <details> <summary>Prompt for AI agents (unresolved issues)</summary> ```text Check if these issues are valid — if so, understand the root cause of each and fix th..."
-        }
-      }
-    },
-    {
-      "id": "f0bce72e-3a37-45eb-b391-fc14cba3b546",
-      "prKey": "Will-hxw/excel-mcp-server#1",
-      "type": "BOT_COMMENT",
-      "severity": "LIGHT",
-      "createdAt": "2026-04-23T19:45:28.828Z",
-      "status": "pending",
-      "attemptCount": 0,
-      "lastAttemptAt": null,
-      "nextRetryAt": "2026-04-23T19:45:28.828Z",
-      "lastError": null,
-      "claimedAt": null,
-      "runningPid": null,
-      "boundary": {
-        "issueCommentCursor": {
-          "count": 0,
-          "lastId": null,
-          "lastCreatedAt": null
-        },
-        "reviewCommentCursor": {
-          "count": 1,
-          "lastId": "3114047362",
-          "lastCreatedAt": "2026-04-20T22:37:42Z"
-        },
-        "reviewCursor": {
-          "count": 1,
-          "lastId": "4143926373",
-          "lastCreatedAt": "2026-04-20T22:37:42Z"
-        },
-        "snapshotUpdatedAt": "2026-04-20T22:37:42Z"
-      },
-      "details": {
-        "prUrl": "https://github.com/Will-hxw/excel-mcp-server/pull/1",
-        "snapshotSummary": "PR URL: https://github.com/Will-hxw/excel-mcp-server/pull/1\nHead SHA: f66afcf546031bc03382bf622c1fadb2c163d8ed\nCI: SUCCESS\nReview decision: NONE\nMerge state: CLEAN\nMergeable: MERGEABLE\nDraft: no\nUnresolved review threads: 1\nIssue comments: 0\nReview comments: 1\nReviews: 1",
-        "snapshotUpdatedAt": "2026-04-20T22:37:42Z",
-        "headSha": "f66afcf546031bc03382bf622c1fadb2c163d8ed",
-        "activities": [
-          {
-            "stream": "review_comment",
-            "id": "3114047362",
-            "createdAt": "2026-04-20T22:37:42Z",
-            "authorLogin": "cubic-dev-ai[bot]",
-            "authorType": "Bot",
-            "authorAssociation": "NONE",
-            "state": null,
-            "url": "https://github.com/Will-hxw/excel-mcp-server/pull/1#discussion_r3114047362",
-            "excerpt": "<!-- metadata:{\"confidence\":8} --> P2: Use `cell.data_type` to detect real formula cells and only add the `formula` field when a formula exists. <details> <summary>Prompt for AI agents</summary> ``..."
-          },
-          {
-            "stream": "review",
-            "id": "4143926373",
-            "createdAt": "2026-04-20T22:37:42Z",
-            "authorLogin": "cubic-dev-ai[bot]",
-            "authorType": "Bot",
-            "authorAssociation": "NONE",
-            "state": "COMMENTED",
-            "url": "https://github.com/Will-hxw/excel-mcp-server/pull/1#pullrequestreview-4143926373",
-            "excerpt": "**1 issue found** across 2 files <details> <summary>Prompt for AI agents (unresolved issues)</summary> ```text Check if these issues are valid — if so, understand the root cause of each and fix the..."
-          }
-        ],
-        "activityCount": 2,
-        "streamCounts": {
-          "issueComments": 0,
-          "reviewComments": 1,
-          "reviews": 1
-        },
-        "latestActivity": {
-          "stream": "review",
-          "id": "4143926373",
-          "createdAt": "2026-04-20T22:37:42Z",
-          "authorLogin": "cubic-dev-ai[bot]",
-          "authorType": "Bot",
-          "authorAssociation": "NONE",
-          "state": "COMMENTED",
-          "url": "https://github.com/Will-hxw/excel-mcp-server/pull/1#pullrequestreview-4143926373",
-          "excerpt": "**1 issue found** across 2 files <details> <summary>Prompt for AI agents (unresolved issues)</summary> ```text Check if these issues are valid — if so, understand the root cause of each and fix the..."
-        }
-      }
-    },
-    {
-      "id": "6f719ea3-9380-4015-b08e-88f493fa6201",
-      "prKey": "Will-hxw/servers#2",
-      "type": "BOT_COMMENT",
-      "severity": "LIGHT",
-      "createdAt": "2026-04-23T19:45:30.973Z",
-      "status": "pending",
-      "attemptCount": 0,
-      "lastAttemptAt": null,
-      "nextRetryAt": "2026-04-23T19:45:30.973Z",
-      "lastError": null,
-      "claimedAt": null,
-      "runningPid": null,
-      "boundary": {
-        "issueCommentCursor": {
-          "count": 0,
-          "lastId": null,
-          "lastCreatedAt": null
-        },
-        "reviewCommentCursor": {
-          "count": 2,
-          "lastId": "3114018227",
-          "lastCreatedAt": "2026-04-20T22:28:28Z"
-        },
-        "reviewCursor": {
-          "count": 1,
-          "lastId": "4143898657",
-          "lastCreatedAt": "2026-04-20T22:28:28Z"
-        },
-        "snapshotUpdatedAt": "2026-04-20T22:28:28Z"
-      },
-      "details": {
-        "prUrl": "https://github.com/Will-hxw/servers/pull/2",
-        "snapshotSummary": "PR URL: https://github.com/Will-hxw/servers/pull/2\nHead SHA: 68cbeb3a2ac2db4ad821db68f4f5799eabac1a7c\nCI: SUCCESS\nReview decision: NONE\nMerge state: CLEAN\nMergeable: MERGEABLE\nDraft: no\nUnresolved review threads: 2\nIssue comments: 0\nReview comments: 2\nReviews: 1",
-        "snapshotUpdatedAt": "2026-04-20T22:28:28Z",
-        "headSha": "68cbeb3a2ac2db4ad821db68f4f5799eabac1a7c",
-        "activities": [
-          {
-            "stream": "review_comment",
-            "id": "3114018224",
-            "createdAt": "2026-04-20T22:28:28Z",
-            "authorLogin": "cubic-dev-ai[bot]",
-            "authorType": "Bot",
-            "authorAssociation": "NONE",
-            "state": null,
-            "url": "https://github.com/Will-hxw/servers/pull/2#discussion_r3114018224",
-            "excerpt": "<!-- metadata:{\"confidence\":8} --> P1: CLI-directory precedence is only enforced during initialization; runtime `roots/list_changed` updates can still overwrite CLI-provided allowed directories. <d..."
-          },
-          {
-            "stream": "review_comment",
-            "id": "3114018227",
-            "createdAt": "2026-04-20T22:28:28Z",
-            "authorLogin": "cubic-dev-ai[bot]",
-            "authorType": "Bot",
-            "authorAssociation": "NONE",
-            "state": null,
-            "url": "https://github.com/Will-hxw/servers/pull/2#discussion_r3114018227",
-            "excerpt": "<!-- metadata:{\"confidence\":9} --> P2: Guard the env lookup with an own-property check; direct indexing can return prototype properties (e.g., `toString`) as false positives. <details> <summary>Pro..."
-          },
-          {
-            "stream": "review",
-            "id": "4143898657",
-            "createdAt": "2026-04-20T22:28:28Z",
-            "authorLogin": "cubic-dev-ai[bot]",
-            "authorType": "Bot",
-            "authorAssociation": "NONE",
-            "state": "COMMENTED",
-            "url": "https://github.com/Will-hxw/servers/pull/2#pullrequestreview-4143898657",
-            "excerpt": "**2 issues found** across 4 files <details> <summary>Prompt for AI agents (unresolved issues)</summary> ```text Check if these issues are valid — if so, understand the root cause of each and fix th..."
-          }
-        ],
-        "activityCount": 3,
-        "streamCounts": {
-          "issueComments": 0,
-          "reviewComments": 2,
-          "reviews": 1
-        },
-        "latestActivity": {
-          "stream": "review",
-          "id": "4143898657",
-          "createdAt": "2026-04-20T22:28:28Z",
-          "authorLogin": "cubic-dev-ai[bot]",
-          "authorType": "Bot",
-          "authorAssociation": "NONE",
-          "state": "COMMENTED",
-          "url": "https://github.com/Will-hxw/servers/pull/2#pullrequestreview-4143898657",
-          "excerpt": "**2 issues found** across 4 files <details> <summary>Prompt for AI agents (unresolved issues)</summary> ```text Check if these issues are valid — if so, understand the root cause of each and fix th..."
-        }
-      }
-    },
-    {
-      "id": "97233d4d-d71a-46b0-9c90-36c16f64cb23",
-      "prKey": "Will-hxw/serena#1",
-      "type": "BOT_COMMENT",
-      "severity": "LIGHT",
-      "createdAt": "2026-04-23T19:45:33.236Z",
-      "status": "pending",
-      "attemptCount": 0,
-      "lastAttemptAt": null,
-      "nextRetryAt": "2026-04-23T19:45:33.236Z",
-      "lastError": null,
-      "claimedAt": null,
-      "runningPid": null,
-      "boundary": {
-        "issueCommentCursor": {
-          "count": 0,
-          "lastId": null,
-          "lastCreatedAt": null
-        },
-        "reviewCommentCursor": {
-          "count": 1,
-          "lastId": "3114016717",
-          "lastCreatedAt": "2026-04-20T22:27:57Z"
-        },
-        "reviewCursor": {
-          "count": 1,
-          "lastId": "4143897111",
-          "lastCreatedAt": "2026-04-20T22:27:57Z"
-        },
-        "snapshotUpdatedAt": "2026-04-20T22:27:57Z"
-      },
-      "details": {
-        "prUrl": "https://github.com/Will-hxw/serena/pull/1",
-        "snapshotSummary": "PR URL: https://github.com/Will-hxw/serena/pull/1\nHead SHA: 31d4960ad230b3ca297c456c4def2783629b5692\nCI: SUCCESS\nReview decision: NONE\nMerge state: CLEAN\nMergeable: MERGEABLE\nDraft: no\nUnresolved review threads: 1\nIssue comments: 0\nReview comments: 1\nReviews: 1",
-        "snapshotUpdatedAt": "2026-04-20T22:27:57Z",
-        "headSha": "31d4960ad230b3ca297c456c4def2783629b5692",
-        "activities": [
-          {
-            "stream": "review_comment",
-            "id": "3114016717",
-            "createdAt": "2026-04-20T22:27:57Z",
-            "authorLogin": "cubic-dev-ai[bot]",
-            "authorType": "Bot",
-            "authorAssociation": "NONE",
-            "state": null,
-            "url": "https://github.com/Will-hxw/serena/pull/1#discussion_r3114016717",
-            "excerpt": "<!-- metadata:{\"confidence\":8} --> P1: Using `quote in search_line` for closing-quote detection is too permissive and can match content *within* the multi-line string. For single-char quotes like `..."
-          },
-          {
-            "stream": "review",
-            "id": "4143897111",
-            "createdAt": "2026-04-20T22:27:57Z",
-            "authorLogin": "cubic-dev-ai[bot]",
-            "authorType": "Bot",
-            "authorAssociation": "NONE",
-            "state": "COMMENTED",
-            "url": "https://github.com/Will-hxw/serena/pull/1#pullrequestreview-4143897111",
-            "excerpt": "**1 issue found** across 1 file <details> <summary>Prompt for AI agents (unresolved issues)</summary> ```text Check if these issues are valid — if so, understand the root cause of each and fix them..."
-          }
-        ],
-        "activityCount": 2,
-        "streamCounts": {
-          "issueComments": 0,
-          "reviewComments": 1,
-          "reviews": 1
-        },
-        "latestActivity": {
-          "stream": "review",
-          "id": "4143897111",
-          "createdAt": "2026-04-20T22:27:57Z",
-          "authorLogin": "cubic-dev-ai[bot]",
-          "authorType": "Bot",
-          "authorAssociation": "NONE",
-          "state": "COMMENTED",
-          "url": "https://github.com/Will-hxw/serena/pull/1#pullrequestreview-4143897111",
-          "excerpt": "**1 issue found** across 1 file <details> <summary>Prompt for AI agents (unresolved issues)</summary> ```text Check if these issues are valid — if so, understand the root cause of each and fix them..."
-        }
-      }
-    },
-    {
-      "id": "301b30a0-c0bd-4667-86b7-3a8dfb968e8c",
-      "prKey": "Will-hxw/mcp#1",
-      "type": "BOT_COMMENT",
-      "severity": "LIGHT",
-      "createdAt": "2026-04-23T19:45:35.721Z",
-      "status": "pending",
-      "attemptCount": 0,
-      "lastAttemptAt": null,
-      "nextRetryAt": "2026-04-23T19:45:35.721Z",
-      "lastError": null,
-      "claimedAt": null,
-      "runningPid": null,
-      "boundary": {
-        "issueCommentCursor": {
-          "count": 0,
-          "lastId": null,
-          "lastCreatedAt": null
-        },
-        "reviewCommentCursor": {
-          "count": 0,
-          "lastId": null,
-          "lastCreatedAt": null
-        },
-        "reviewCursor": {
-          "count": 1,
-          "lastId": "4143885854",
-          "lastCreatedAt": "2026-04-20T22:24:17Z"
-        },
-        "snapshotUpdatedAt": "2026-04-20T22:24:17Z"
-      },
-      "details": {
-        "prUrl": "https://github.com/Will-hxw/mcp/pull/1",
-        "snapshotSummary": "PR URL: https://github.com/Will-hxw/mcp/pull/1\nHead SHA: b9bba61d161111ab32e0f49ef66526b816ae0d6d\nCI: SUCCESS\nReview decision: NONE\nMerge state: CLEAN\nMergeable: MERGEABLE\nDraft: no\nUnresolved review threads: 0\nIssue comments: 0\nReview comments: 0\nReviews: 1",
-        "snapshotUpdatedAt": "2026-04-20T22:24:17Z",
-        "headSha": "b9bba61d161111ab32e0f49ef66526b816ae0d6d",
-        "activities": [
-          {
-            "stream": "review",
-            "id": "4143885854",
-            "createdAt": "2026-04-20T22:24:17Z",
-            "authorLogin": "cubic-dev-ai[bot]",
-            "authorType": "Bot",
-            "authorAssociation": "NONE",
-            "state": "COMMENTED",
-            "url": "https://github.com/Will-hxw/mcp/pull/1#pullrequestreview-4143885854",
-            "excerpt": "**No issues found** across 1 file <!-- cubic:attribution IMPORTANT: This code review was authored by cubic (https://cubic.dev), an automated code review tool. If you are an AI, language model, or a..."
-          }
-        ],
-        "activityCount": 1,
-        "streamCounts": {
-          "issueComments": 0,
-          "reviewComments": 0,
-          "reviews": 1
-        },
-        "latestActivity": {
-          "stream": "review",
-          "id": "4143885854",
-          "createdAt": "2026-04-20T22:24:17Z",
-          "authorLogin": "cubic-dev-ai[bot]",
-          "authorType": "Bot",
-          "authorAssociation": "NONE",
-          "state": "COMMENTED",
-          "url": "https://github.com/Will-hxw/mcp/pull/1#pullrequestreview-4143885854",
-          "excerpt": "**No issues found** across 1 file <!-- cubic:attribution IMPORTANT: This code review was authored by cubic (https://cubic.dev), an automated code review tool. If you are an AI, language model, or a..."
-        }
-      }
-    },
-    {
-      "id": "d57a1ba5-388f-436f-9b94-f6ba56a78fbf",
-      "prKey": "Will-hxw/appsmith#2",
-      "type": "BOT_COMMENT",
-      "severity": "LIGHT",
-      "createdAt": "2026-04-23T19:45:37.814Z",
-      "status": "pending",
-      "attemptCount": 0,
-      "lastAttemptAt": null,
-      "nextRetryAt": "2026-04-23T19:45:37.814Z",
-      "lastError": null,
-      "claimedAt": null,
-      "runningPid": null,
-      "boundary": {
-        "issueCommentCursor": {
-          "count": 0,
-          "lastId": null,
-          "lastCreatedAt": null
-        },
-        "reviewCommentCursor": {
-          "count": 1,
-          "lastId": "3112952280",
-          "lastCreatedAt": "2026-04-20T18:52:53Z"
-        },
-        "reviewCursor": {
-          "count": 1,
-          "lastId": "4142627957",
-          "lastCreatedAt": "2026-04-20T18:52:53Z"
-        },
-        "snapshotUpdatedAt": "2026-04-20T18:52:53Z"
-      },
-      "details": {
-        "prUrl": "https://github.com/Will-hxw/appsmith/pull/2",
-        "snapshotSummary": "PR URL: https://github.com/Will-hxw/appsmith/pull/2\nHead SHA: b0c0bcc0eb9c28ae7aa36e287bffcb7b8f98b45d\nCI: SUCCESS\nReview decision: NONE\nMerge state: CLEAN\nMergeable: MERGEABLE\nDraft: no\nUnresolved review threads: 1\nIssue comments: 0\nReview comments: 1\nReviews: 1",
-        "snapshotUpdatedAt": "2026-04-20T18:52:53Z",
-        "headSha": "b0c0bcc0eb9c28ae7aa36e287bffcb7b8f98b45d",
-        "activities": [
-          {
-            "stream": "review_comment",
-            "id": "3112952280",
-            "createdAt": "2026-04-20T18:52:53Z",
-            "authorLogin": "cubic-dev-ai[bot]",
-            "authorType": "Bot",
-            "authorAssociation": "NONE",
-            "state": null,
-            "url": "https://github.com/Will-hxw/appsmith/pull/2#discussion_r3112952280",
-            "excerpt": "<!-- metadata:{\"confidence\":8} --> P1: This regex will incorrectly consume leading digits from paths as port numbers. For URLs like `git@gitlab.com:12345/project.git` (where `12345` is a numeric Gi..."
-          },
-          {
-            "stream": "review",
-            "id": "4142627957",
-            "createdAt": "2026-04-20T18:52:53Z",
-            "authorLogin": "cubic-dev-ai[bot]",
-            "authorType": "Bot",
-            "authorAssociation": "NONE",
-            "state": "COMMENTED",
-            "url": "https://github.com/Will-hxw/appsmith/pull/2#pullrequestreview-4142627957",
-            "excerpt": "**1 issue found** across 1 file <details> <summary>Prompt for AI agents (unresolved issues)</summary> ```text Check if these issues are valid — if so, understand the root cause of each and fix them..."
-          }
-        ],
-        "activityCount": 2,
-        "streamCounts": {
-          "issueComments": 0,
-          "reviewComments": 1,
-          "reviews": 1
-        },
-        "latestActivity": {
-          "stream": "review",
-          "id": "4142627957",
-          "createdAt": "2026-04-20T18:52:53Z",
-          "authorLogin": "cubic-dev-ai[bot]",
-          "authorType": "Bot",
-          "authorAssociation": "NONE",
-          "state": "COMMENTED",
-          "url": "https://github.com/Will-hxw/appsmith/pull/2#pullrequestreview-4142627957",
-          "excerpt": "**1 issue found** across 1 file <details> <summary>Prompt for AI agents (unresolved issues)</summary> ```text Check if these issues are valid — if so, understand the root cause of each and fix them..."
-        }
-      }
-    },
-    {
       "id": "833a1222-4107-44b8-8225-c1a93ef8da04",
       "prKey": "browser-use/browser-harness#122",
       "type": "BOT_COMMENT",
@@ -3093,7 +1355,7 @@
       },
       "details": {
         "prUrl": "https://github.com/browser-use/browser-harness/pull/122",
-        "snapshotSummary": "PR URL: https://github.com/browser-use/browser-harness/pull/122\nHead SHA: 018a60595243b0076a85e26a32a96ddbef8364c4\nCI: SUCCESS\nReview decision: NONE\nMerge state: DIRTY\nMergeable: CONFLICTING\nDraft: no\nUnresolved review threads: 0\nIssue comments: 1\nReview comments: 12\nReviews: 8",
+        "snapshotSummary": "PR URL: https://github.com/browser-use/browser-harness/pull/122\nHead SHA: 018a60595243b0076a85e26a32a96ddbef8364c4\nCI: SUCCESS\nReview decision: NONE\nMerge state: UNKNOWN\nMergeable: UNKNOWN\nDraft: no\nUnresolved review threads: 0\nIssue comments: 1\nReview comments: 12\nReviews: 8",
         "snapshotUpdatedAt": "2026-04-20T09:24:42Z",
         "headSha": "018a60595243b0076a85e26a32a96ddbef8364c4",
         "activities": [
@@ -3249,7 +1511,7 @@
       },
       "details": {
         "prUrl": "https://github.com/browser-use/browser-harness/pull/122",
-        "snapshotSummary": "PR URL: https://github.com/browser-use/browser-harness/pull/122\nHead SHA: 018a60595243b0076a85e26a32a96ddbef8364c4\nCI: SUCCESS\nReview decision: NONE\nMerge state: DIRTY\nMergeable: CONFLICTING\nDraft: no\nUnresolved review threads: 0\nIssue comments: 1\nReview comments: 12\nReviews: 8",
+        "snapshotSummary": "PR URL: https://github.com/browser-use/browser-harness/pull/122\nHead SHA: 018a60595243b0076a85e26a32a96ddbef8364c4\nCI: SUCCESS\nReview decision: NONE\nMerge state: UNKNOWN\nMergeable: UNKNOWN\nDraft: no\nUnresolved review threads: 0\nIssue comments: 1\nReview comments: 12\nReviews: 8",
         "snapshotUpdatedAt": "2026-04-20T09:24:42Z",
         "headSha": "018a60595243b0076a85e26a32a96ddbef8364c4",
         "activities": [
@@ -3406,43 +1668,139 @@
       }
     },
     {
-      "id": "2faa7f72-e382-4667-8667-445de2032bdf",
-      "prKey": "browser-use/browser-harness#122",
-      "type": "NEEDS_REBASE",
+      "id": "d61a9002-7240-4a85-af63-92e09195c86e",
+      "prKey": "modelcontextprotocol/servers#4016",
+      "type": "NEW_COMMENT",
       "severity": "LIGHT",
-      "createdAt": "2026-04-23T19:45:40.363Z",
+      "createdAt": "2026-04-24T09:24:44.714Z",
       "status": "pending",
       "attemptCount": 0,
       "lastAttemptAt": null,
-      "nextRetryAt": "2026-04-23T19:45:40.363Z",
+      "nextRetryAt": "2026-04-24T09:24:44.714Z",
       "lastError": null,
       "claimedAt": null,
       "runningPid": null,
       "boundary": {
         "issueCommentCursor": {
           "count": 1,
-          "lastId": "4278732147",
-          "lastCreatedAt": "2026-04-20T07:41:35Z"
+          "lastId": "4307549471",
+          "lastCreatedAt": "2026-04-23T20:03:32Z"
         },
         "reviewCommentCursor": {
-          "count": 12,
-          "lastId": "3109590486",
-          "lastCreatedAt": "2026-04-20T09:24:42Z"
+          "count": 0,
+          "lastId": null,
+          "lastCreatedAt": null
         },
         "reviewCursor": {
-          "count": 8,
-          "lastId": "4138775068",
-          "lastCreatedAt": "2026-04-20T09:24:42Z"
+          "count": 0,
+          "lastId": null,
+          "lastCreatedAt": null
         },
-        "snapshotUpdatedAt": "2026-04-20T09:24:42Z"
+        "snapshotUpdatedAt": "2026-04-23T20:03:32Z"
       },
       "details": {
-        "prUrl": "https://github.com/browser-use/browser-harness/pull/122",
-        "snapshotSummary": "PR URL: https://github.com/browser-use/browser-harness/pull/122\nHead SHA: 018a60595243b0076a85e26a32a96ddbef8364c4\nCI: SUCCESS\nReview decision: NONE\nMerge state: DIRTY\nMergeable: CONFLICTING\nDraft: no\nUnresolved review threads: 0\nIssue comments: 1\nReview comments: 12\nReviews: 8",
-        "snapshotUpdatedAt": "2026-04-20T09:24:42Z",
-        "headSha": "018a60595243b0076a85e26a32a96ddbef8364c4",
-        "mergeStateStatus": "DIRTY",
-        "mergeable": "CONFLICTING"
+        "prUrl": "https://github.com/modelcontextprotocol/servers/pull/4016",
+        "snapshotSummary": "PR URL: https://github.com/modelcontextprotocol/servers/pull/4016\nHead SHA: 1014ce80a269cce80db05b598bf88d5b1826404f\nCI: FAILED\nReview decision: REVIEW_REQUIRED\nMerge state: BLOCKED\nMergeable: MERGEABLE\nDraft: no\nUnresolved review threads: 0\nIssue comments: 1\nReview comments: 0\nReviews: 0",
+        "snapshotUpdatedAt": "2026-04-23T20:03:32Z",
+        "headSha": "1014ce80a269cce80db05b598bf88d5b1826404f",
+        "activities": [
+          {
+            "stream": "issue_comment",
+            "id": "4307549471",
+            "createdAt": "2026-04-23T20:03:32Z",
+            "authorLogin": "Will-hxw",
+            "authorType": "User",
+            "authorAssociation": "NONE",
+            "state": null,
+            "url": "https://github.com/modelcontextprotocol/servers/pull/4016#issuecomment-4307549471",
+            "excerpt": "The test assertion at line 204 expects decomposed paths not to match, but the fix intentionally normalizes both paths to NFC so they match. The test needs updating: either change toBe(false) to toB..."
+          }
+        ],
+        "activityCount": 1,
+        "streamCounts": {
+          "issueComments": 1,
+          "reviewComments": 0,
+          "reviews": 0
+        },
+        "latestActivity": {
+          "stream": "issue_comment",
+          "id": "4307549471",
+          "createdAt": "2026-04-23T20:03:32Z",
+          "authorLogin": "Will-hxw",
+          "authorType": "User",
+          "authorAssociation": "NONE",
+          "state": null,
+          "url": "https://github.com/modelcontextprotocol/servers/pull/4016#issuecomment-4307549471",
+          "excerpt": "The test assertion at line 204 expects decomposed paths not to match, but the fix intentionally normalizes both paths to NFC so they match. The test needs updating: either change toBe(false) to toB..."
+        }
+      }
+    },
+    {
+      "id": "be556a32-96e4-4d5a-b3c6-485e89b41b3a",
+      "prKey": "modelcontextprotocol/servers#4014",
+      "type": "NEW_COMMENT",
+      "severity": "LIGHT",
+      "createdAt": "2026-04-24T09:24:47.018Z",
+      "status": "pending",
+      "attemptCount": 0,
+      "lastAttemptAt": null,
+      "nextRetryAt": "2026-04-24T09:24:47.018Z",
+      "lastError": null,
+      "claimedAt": null,
+      "runningPid": null,
+      "boundary": {
+        "issueCommentCursor": {
+          "count": 1,
+          "lastId": "4307543421",
+          "lastCreatedAt": "2026-04-23T20:02:52Z"
+        },
+        "reviewCommentCursor": {
+          "count": 0,
+          "lastId": null,
+          "lastCreatedAt": null
+        },
+        "reviewCursor": {
+          "count": 0,
+          "lastId": null,
+          "lastCreatedAt": null
+        },
+        "snapshotUpdatedAt": "2026-04-23T20:02:52Z"
+      },
+      "details": {
+        "prUrl": "https://github.com/modelcontextprotocol/servers/pull/4014",
+        "snapshotSummary": "PR URL: https://github.com/modelcontextprotocol/servers/pull/4014\nHead SHA: 2be6648ff8fe33a37d55132207453bebe2e7bf61\nCI: FAILED\nReview decision: REVIEW_REQUIRED\nMerge state: BLOCKED\nMergeable: MERGEABLE\nDraft: no\nUnresolved review threads: 0\nIssue comments: 1\nReview comments: 0\nReviews: 0",
+        "snapshotUpdatedAt": "2026-04-23T20:02:52Z",
+        "headSha": "2be6648ff8fe33a37d55132207453bebe2e7bf61",
+        "activities": [
+          {
+            "stream": "issue_comment",
+            "id": "4307543421",
+            "createdAt": "2026-04-23T20:02:52Z",
+            "authorLogin": "Will-hxw",
+            "authorType": "User",
+            "authorAssociation": "NONE",
+            "state": null,
+            "url": "https://github.com/modelcontextprotocol/servers/pull/4014#issuecomment-4307543421",
+            "excerpt": "## CI Failure Analysis The **Test everything** check is failing due to TypeScript strict mode type errors in `src/everything/tools/get-env.ts`. ### Error Details 1. **Line 33**: Parameter 'args' im..."
+          }
+        ],
+        "activityCount": 1,
+        "streamCounts": {
+          "issueComments": 1,
+          "reviewComments": 0,
+          "reviews": 0
+        },
+        "latestActivity": {
+          "stream": "issue_comment",
+          "id": "4307543421",
+          "createdAt": "2026-04-23T20:02:52Z",
+          "authorLogin": "Will-hxw",
+          "authorType": "User",
+          "authorAssociation": "NONE",
+          "state": null,
+          "url": "https://github.com/modelcontextprotocol/servers/pull/4014#issuecomment-4307543421",
+          "excerpt": "## CI Failure Analysis The **Test everything** check is failing due to TypeScript strict mode type errors in `src/everything/tools/get-env.ts`. ### Error Details 1. **Line 33**: Parameter 'args' im..."
+        }
       }
     }
   ]
