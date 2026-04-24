@@ -869,7 +869,7 @@
       "type": "CI_FAILURE",
       "severity": "HEAVY",
       "createdAt": "2026-04-23T19:44:21.885Z",
-      "status": "pending",
+      "status": "completed",
       "attemptCount": 2,
       "lastAttemptAt": null,
       "nextRetryAt": null,
@@ -906,7 +906,9 @@
             "conclusion": "FAILURE"
           }
         ]
-      }
+      },
+      "result": "CI_PASSED",
+      "resultNote": "CI now passing - Require Contributor Statement passed"
     },
     {
       "id": "428fb197-2b4b-409c-9639-108240f985d3",
