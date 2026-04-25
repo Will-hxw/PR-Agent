@@ -965,6 +965,169 @@ test("already claimed task is not spawned again", async () => {
   assert.equal(spawnCount, 0);
 });
 
+test("CI retry refreshes failing checks before dispatch", async () => {
+  const listener = createListener({
+    enableTaskDispatch: true,
+    fetchPrSnapshot: async () => makeSnapshot({
+      prKey: "demo/repo#20",
+      updatedAt: "2026-04-24T00:10:00.000Z",
+      statusCheckState: "FAILED",
+      failingChecks: [{ label: "ci-new", conclusion: "FAILURE" }],
+    }),
+  });
+  listener.saveAll = async () => {};
+  const task = listener.taskManager.add(
+    "demo/repo#20",
+    "CI_FAILURE",
+    agent.TASK_EVENT_SEVERITY.CI_FAILURE,
+    { snapshotSummary: "old", failingChecks: [{ label: "ci-old", conclusion: "FAILURE" }] },
+    agent.normalizeBoundary({ snapshotUpdatedAt: "2026-04-24T00:00:00.000Z" }),
+  );
+  task.attemptCount = 1;
+  task.nextRetryAt = "2026-04-24T00:00:00.000Z";
+  const started = [];
+  listener._startTask = async (dispatchTask) => {
+    started.push(JSON.parse(JSON.stringify(dispatchTask)));
+  };
+
+  await listener._dispatchRunnableTasks();
+  listener.stop();
+
+  assert.equal(started.length, 1);
+  assert.equal(started[0].details.failingChecks[0].label, "ci-new");
+  assert.ok(listener.actionLogger.lines.some((line) => line.includes("event_retry_details_refreshed")));
+});
+
+test("CI retry is not dispatched when refresh clears the trigger", async () => {
+  const listener = createListener({
+    enableTaskDispatch: true,
+    fetchPrSnapshot: async () => makeSnapshot({
+      prKey: "demo/repo#23",
+      updatedAt: "2026-04-24T00:10:00.000Z",
+      statusCheckState: "SUCCESS",
+      failingChecks: [],
+    }),
+  });
+  listener.saveAll = async () => {};
+  const task = listener.taskManager.add(
+    "demo/repo#23",
+    "CI_FAILURE",
+    agent.TASK_EVENT_SEVERITY.CI_FAILURE,
+    { snapshotSummary: "old", failingChecks: [{ label: "ci-old", conclusion: "FAILURE" }] },
+    agent.normalizeBoundary({ snapshotUpdatedAt: "2026-04-24T00:00:00.000Z" }),
+  );
+  task.attemptCount = 1;
+  task.nextRetryAt = "2026-04-24T00:00:00.000Z";
+  let spawnCount = 0;
+  listener._startTask = async () => {
+    spawnCount += 1;
+  };
+
+  await listener._dispatchRunnableTasks();
+  listener.stop();
+
+  assert.equal(spawnCount, 0);
+  assert.equal(listener.taskManager.getById(task.id), null);
+});
+
+test("CI retry refresh failure defers without incrementing attempts", async () => {
+  const listener = createListener({
+    enableTaskDispatch: true,
+    fetchPrSnapshot: async () => {
+      throw new Error("network unavailable");
+    },
+  });
+  listener.taskManager.save = async () => {};
+  const task = listener.taskManager.add(
+    "demo/repo#24",
+    "CI_FAILURE",
+    agent.TASK_EVENT_SEVERITY.CI_FAILURE,
+    { snapshotSummary: "old", failingChecks: [{ label: "ci-old", conclusion: "FAILURE" }] },
+    agent.normalizeBoundary({ snapshotUpdatedAt: "2026-04-24T00:00:00.000Z" }),
+  );
+  task.attemptCount = 2;
+  task.nextRetryAt = "2026-04-24T00:00:00.000Z";
+  let spawnCount = 0;
+  listener._startTask = async () => {
+    spawnCount += 1;
+  };
+
+  await listener._dispatchRunnableTasks();
+  listener.stop();
+
+  assert.equal(spawnCount, 0);
+  assert.equal(task.status, agent.TASK_STATUS.PENDING);
+  assert.equal(task.attemptCount, 2);
+  assert.match(task.lastError, /retry_refresh_failed/);
+  assert.notEqual(task.nextRetryAt, "2026-04-24T00:00:00.000Z");
+  assert.ok(listener.actionLogger.lines.some((line) => line.includes("event_retry_refresh_failed")));
+});
+
+test("CI retry boundary regression defers without dispatching stale details", async () => {
+  const listener = createListener({
+    enableTaskDispatch: true,
+    fetchPrSnapshot: async () => makeSnapshot({
+      prKey: "demo/repo#25",
+      updatedAt: "2026-04-24T00:09:00.000Z",
+      statusCheckState: "FAILED",
+      failingChecks: [{ label: "ci-regressed", conclusion: "FAILURE" }],
+    }),
+  });
+  listener.taskManager.save = async () => {};
+  const task = listener.taskManager.add(
+    "demo/repo#25",
+    "CI_FAILURE",
+    agent.TASK_EVENT_SEVERITY.CI_FAILURE,
+    { snapshotSummary: "old", failingChecks: [{ label: "ci-old", conclusion: "FAILURE" }] },
+    agent.normalizeBoundary({ snapshotUpdatedAt: "2026-04-24T00:10:00.000Z" }),
+  );
+  task.attemptCount = 1;
+  task.nextRetryAt = "2026-04-24T00:00:00.000Z";
+  let spawnCount = 0;
+  listener._startTask = async () => {
+    spawnCount += 1;
+  };
+
+  await listener._dispatchRunnableTasks();
+  listener.stop();
+
+  assert.equal(spawnCount, 0);
+  assert.equal(task.details.failingChecks[0].label, "ci-old");
+  assert.equal(task.boundary.snapshotUpdatedAt, "2026-04-24T00:10:00.000Z");
+  assert.match(task.lastError, /retry_refresh_boundary_regressed/);
+  assert.ok(listener.actionLogger.lines.some((line) => line.includes("event_retry_refresh_regressed")));
+});
+
+test("first dispatch does not fetch an extra retry snapshot", async () => {
+  let fetchCount = 0;
+  const listener = createListener({
+    enableTaskDispatch: true,
+    fetchPrSnapshot: async () => {
+      fetchCount += 1;
+      throw new Error("should not fetch before first dispatch");
+    },
+  });
+  const task = listener.taskManager.add(
+    "demo/repo#26",
+    "CI_FAILURE",
+    agent.TASK_EVENT_SEVERITY.CI_FAILURE,
+    { snapshotSummary: "fresh", failingChecks: [{ label: "ci", conclusion: "FAILURE" }] },
+    agent.normalizeBoundary({ snapshotUpdatedAt: "2026-04-24T00:00:00.000Z" }),
+  );
+  task.attemptCount = 0;
+  task.nextRetryAt = "2026-04-24T00:00:00.000Z";
+  const started = [];
+  listener._startTask = async (dispatchTask) => {
+    started.push(dispatchTask.id);
+  };
+
+  await listener._dispatchRunnableTasks();
+  listener.stop();
+
+  assert.equal(fetchCount, 0);
+  assert.deepStrictEqual(started, [task.id]);
+});
+
 test("dispatch reruns when requested during an active dispatch", async () => {
   const listener = createListener();
   listener.config.enableTaskDispatch = true;

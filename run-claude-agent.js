@@ -1127,6 +1127,17 @@ function classifyBlockedTaskReason(type, snapshot) {
   return "state-trigger-still-active";
 }
 
+function checkLabelForSummary(check) {
+  return check?.label || check?.name || check?.workflowName || "unknown";
+}
+
+function summarizeCheckLabels(checks) {
+  if (!Array.isArray(checks) || checks.length === 0) {
+    return "";
+  }
+  return checks.map(checkLabelForSummary).join(",");
+}
+
 function extractAckFromTextBuffer(bufferHolder, task) {
   let parsed = null;
   let newlineIndex = bufferHolder.buffer.indexOf("\n");
@@ -1847,6 +1858,19 @@ class EventTaskManager {
     return event;
   }
 
+  defer(id, reason) {
+    const event = this.getById(id);
+    if (!event) {
+      return null;
+    }
+    event.status = TASK_STATUS.PENDING;
+    event.lastError = truncate(reason || "retry_deferred", 400);
+    event.nextRetryAt = nextRetryAtForAttempt(Math.max(1, event.attemptCount));
+    event.claimedAt = null;
+    event.runningPid = null;
+    return event;
+  }
+
   block(id, blockReason, details, boundary) {
     const event = this.getById(id);
     if (!event) {
@@ -2349,15 +2373,81 @@ class EventListener {
           if (this.activeSubagents.size >= MAX_PARALLEL_SUBAGENTS) {
             break;
           }
-          if (this._processing.has(task.prKey)) {
+          let dispatchTask = task;
+          if (this._shouldRefreshBeforeDispatch(task)) {
+            dispatchTask = await this._refreshRetryTaskBeforeDispatch(task);
+            if (!dispatchTask) {
+              continue;
+            }
+          }
+          if (this._processing.has(dispatchTask.prKey)) {
             continue;
           }
-          await this._startTask(task);
+          await this._startTask(dispatchTask);
         }
       } while (this._dispatchRequested);
     } finally {
       this._dispatching = false;
     }
+  }
+
+  _shouldRefreshBeforeDispatch(task) {
+    return STATE_BACKED_TASK_TYPES.has(task.type) && Number(task.attemptCount || 0) > 0;
+  }
+
+  async _refreshRetryTaskBeforeDispatch(task) {
+    let snapshot;
+    try {
+      snapshot = await this.fetchPrSnapshot(task.prKey, {
+        timeoutMs: GH_TIMEOUT_MS,
+      });
+    } catch (error) {
+      const reason = `retry_refresh_failed: ${error.message}`;
+      this.taskManager.defer(task.id, reason);
+      this.actionLogger.writeLine(
+        `[${nowStamp()}] event_retry_refresh_failed pr=${task.prKey} task=${task.id} type=${task.type} reason=${truncate(error.message || error, 300)}`,
+      );
+      await this.taskManager.save();
+      return null;
+    }
+
+    if (boundaryRefreshRegresses(task.boundary, buildBoundaryFromSnapshot(snapshot))) {
+      const reason = "retry_refresh_boundary_regressed";
+      this.taskManager.defer(task.id, reason);
+      this.actionLogger.writeLine(
+        `[${nowStamp()}] event_retry_refresh_regressed pr=${task.prKey} task=${task.id} type=${task.type} current=${task.boundary?.snapshotUpdatedAt || "none"} candidate=${snapshot.updatedAt || "none"}`,
+      );
+      await this.taskManager.save();
+      return null;
+    }
+
+    const oldChecks = task.type === "CI_FAILURE" ? summarizeCheckLabels(task.details?.failingChecks) : "";
+    try {
+      await this._scanSnapshot(snapshot);
+      await this.saveAll();
+    } catch (error) {
+      const reason = `retry_refresh_failed: ${error.message}`;
+      this.taskManager.defer(task.id, reason);
+      this.actionLogger.writeLine(
+        `[${nowStamp()}] event_retry_refresh_failed pr=${task.prKey} task=${task.id} type=${task.type} reason=${truncate(error.message || error, 300)}`,
+      );
+      await this.taskManager.save();
+      return null;
+    }
+
+    const refreshed = this.taskManager.getById(task.id);
+    if (!refreshed || refreshed.status !== TASK_STATUS.PENDING) {
+      return null;
+    }
+    if (task.type === "CI_FAILURE") {
+      const newChecks = summarizeCheckLabels(refreshed.details?.failingChecks);
+      if (oldChecks !== newChecks) {
+        this.actionLogger.writeLine(
+          `[${nowStamp()}] event_retry_details_refreshed pr=${task.prKey} task=${task.id} type=${task.type} old=${truncate(oldChecks || "none", 200)} new=${truncate(newChecks || "none", 200)}`,
+        );
+      }
+    }
+    return refreshed;
   }
 
   _spawnSubagent(commandString) {
