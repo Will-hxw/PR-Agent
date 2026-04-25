@@ -369,6 +369,7 @@ PR 提交后，工作没有结束。
 - task 成功后会直接从 `event_task.json` 删除：subagent 完成时输出结构化 `task result`，由 launcher 自动删除、block 或 retry；主代理亲自处理并确认完成时，可以直接删除对应 task 条目；失败会重试，达到上限后进入 `dead`。
 - 主代理手工删除 task 前，必须先按 `doc/event-task-state-maintenance.md` 更新 `event_state.json` 的 handled baseline；只删除 `event_task.json` 不代表事件已处理，下一次扫描可能重新生成同类 task。
 - `CI_FAILURE`、`REVIEW_CHANGES_REQUESTED`、`NEEDS_REBASE` 这类状态型 task 只有在 GitHub 最新状态里的触发条件消失后才允许清除；如果 subagent 报告 `resolved` 但触发条件仍存在，应进入 `blocked`；如果报告 `blocked` / `needs_human`，launcher 直接保留为 `blocked`。
+- 状态型 task 会先按 actionability 分类：明确需要 contributor、maintainer、人类决策或基础设施处理的任务直接 `blocked`；agent 可行动或无法确定的任务才允许自动派发。
 - `pending` / `dead` task 只在底层触发条件仍然成立时继续保留；如果触发条件消失，会在后续扫描中自动回收，不再阻塞 dedupe。
 - 评论 backlog 按 `MAINTAINER_COMMENT`、`BOT_COMMENT`、`NEW_COMMENT` 三类独立跟踪，同一轮扫描里可以并存，不再折叠成单条评论 task。
 - 配置的 contributor login 自己发布的评论和 review 不生成 `NEW_COMMENT`，避免 agent 回复后再把自己的回复派发成新任务。
@@ -389,12 +390,14 @@ PR 提交后，工作没有结束。
 - `blocked`：subagent 或 launcher 判断当前任务不应继续普通重试，需要人工、外部条件或维护者决策。
 - `dead`：达到自动重试上限；仅当底层触发条件仍然存在时继续阻塞同 `prKey + type` 的去重，触发条件消失后会被自动回收。
 
+`blocked` task 通过 `blockOwner`、`blockCategory`、`unblockHint` 和 `blockedSnapshot` 说明阻塞责任、类别、解除条件和当时看到的 GitHub 状态；不要把 `needs_human` 或 `needs-contributor-action` 当作独立 status。
+
 `running` task 会记录 `claimedAt`、`runningPid` 和 `lastOutputAt`；重启恢复时优先按最后输出时间判断是否超时。
 
 如果 `dead` task 阻塞了后续同类事件，人工处理方式只有两种：
 
 - 直接删除该 task 条目，彻底解除阻塞。
-- 手动改回 `pending`，并同时重置 `attemptCount`、`lastAttemptAt`、`nextRetryAt`、`lastError`、`claimedAt`、`runningPid`、`lastOutputAt`。
+- 手动改回 `pending`，并同时重置 `attemptCount`、`lastAttemptAt`、`nextRetryAt`、`lastError`、`claimedAt`、`runningPid`、`lastOutputAt`、`blockOwner`、`blockCategory`、`unblockHint`、`blockedSnapshot`。
 
 `event_state.json` 中评论 baseline 采用 category-scoped 结构：
 

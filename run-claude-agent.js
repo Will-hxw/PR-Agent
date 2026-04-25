@@ -42,6 +42,15 @@ const TASK_STATUS = {
   BLOCKED: "blocked",
   DEAD: "dead",
 };
+const TASK_ACTIONABILITY = Object.freeze({
+  ACTIONABLE_BY_AGENT: "actionable_by_agent",
+  NEEDS_CONTRIBUTOR_ACTION: "needs_contributor_action",
+  NEEDS_MAINTAINER_ACTION: "needs_maintainer_action",
+  NEEDS_HUMAN_DECISION: "needs_human_decision",
+  NEEDS_INFRA_ACTION: "needs_infra_action",
+  NOT_ACTIONABLE: "not_actionable",
+  UNKNOWN: "unknown",
+});
 const TASK_RESULT_STATUSES = new Set(["resolved", "blocked", "needs_human", "not_actionable"]);
 const TERMINAL_TASK_STATUSES = new Set(["success", "succeeded", "completed", "handled", "done"]);
 const TASK_EVENT_SEVERITY = {
@@ -351,6 +360,22 @@ function normalizeTaskTimestamp(value) {
   }
   const parsed = Date.parse(value);
   return Number.isFinite(parsed) ? new Date(parsed).toISOString() : null;
+}
+
+function normalizeTaskMetadataString(value, maxLength = 200) {
+  if (typeof value !== "string") {
+    return null;
+  }
+  const trimmed = value.trim();
+  return trimmed ? truncate(trimmed, maxLength) : null;
+}
+
+function normalizeTaskActionability(value) {
+  const normalized = normalizeTaskMetadataString(value, 80);
+  if (!normalized) {
+    return null;
+  }
+  return Object.values(TASK_ACTIONABILITY).includes(normalized) ? normalized : null;
 }
 
 function parseRetryTimestampMs(event) {
@@ -781,6 +806,10 @@ function normalizeTaskRecord(raw) {
     lastOutputAt: normalizeTaskTimestamp(raw.lastOutputAt),
     blockedAt: raw.blockedAt || null,
     blockReason: raw.blockReason || null,
+    blockOwner: normalizeTaskMetadataString(raw.blockOwner, 80),
+    blockCategory: normalizeTaskMetadataString(raw.blockCategory, 80),
+    unblockHint: normalizeTaskMetadataString(raw.unblockHint, 400),
+    blockedSnapshot: raw.blockedSnapshot && typeof raw.blockedSnapshot === "object" ? cloneJson(raw.blockedSnapshot) : null,
     boundary: normalizeBoundary(raw.boundary),
     details: raw.details && typeof raw.details === "object" ? cloneJson(raw.details) : {},
   };
@@ -916,8 +945,8 @@ function parsePrKey(prKey) {
   };
 }
 
-function buildTaskResultRecord(task, status = "resolved", reason = "", summary = "") {
-  return {
+function buildTaskResultRecord(task, status = "resolved", reason = "", summary = "", metadata = {}) {
+  const record = {
     version: 2,
     eventId: task.id,
     prKey: task.prKey,
@@ -926,6 +955,12 @@ function buildTaskResultRecord(task, status = "resolved", reason = "", summary =
     reason,
     summary,
   };
+  for (const key of ["actionability", "blockOwner", "blockCategory", "unblockHint"]) {
+    if (metadata[key]) {
+      record[key] = metadata[key];
+    }
+  }
+  return record;
 }
 
 function formatUntrustedTaskDetails(details) {
@@ -965,6 +1000,7 @@ function buildSubagentPrompt(task) {
     "- blocked：当前触发条件仍存在，但自动 agent 不应继续普通重试。",
     "- needs_human：需要 contributor、maintainer 或人工决策。",
     "- not_actionable：确认该事件不需要行动；状态型 task 仍必须由 launcher 验证触发条件已消失。",
+    "Optional fields for blocked/needs_human/not_actionable: actionability, blockOwner, blockCategory, unblockHint. Use actionability values such as needs_contributor_action, needs_maintainer_action, needs_human_decision, needs_infra_action, not_actionable, or unknown.",
     "输出格式示例，保持 version/eventId/prKey/type 字段不变，只改 status/reason/summary：",
     resultLine,
     "",
@@ -1119,30 +1155,230 @@ function buildStateBackedTaskDetails(type, snapshot) {
   return buildTaskDetails(type, snapshot);
 }
 
-function classifyBlockedTaskReason(type, snapshot) {
+function flattenClassificationText(value) {
+  if (value == null) {
+    return "";
+  }
+  if (Array.isArray(value)) {
+    return value.map(flattenClassificationText).join(" ");
+  }
+  if (typeof value === "object") {
+    return Object.values(value).map(flattenClassificationText).join(" ");
+  }
+  return String(value);
+}
+
+function textIncludesAny(text, patterns) {
+  return patterns.some((pattern) => text.includes(pattern));
+}
+
+function stateBackedBlockCategory(type) {
+  if (type === "CI_FAILURE") {
+    return "ci";
+  }
   if (type === "REVIEW_CHANGES_REQUESTED") {
-    return "needs-maintainer-review-decision-change";
+    return "review";
   }
   if (type === "NEEDS_REBASE") {
-    return "needs-contributor-rebase";
+    return "merge";
+  }
+  return "state";
+}
+
+function buildBlockedSnapshot(type, snapshot) {
+  const blockedSnapshot = {
+    snapshotUpdatedAt: snapshot?.updatedAt || null,
+    headSha: snapshot?.headSha || null,
+  };
+  if (type === "CI_FAILURE") {
+    blockedSnapshot.statusCheckState = snapshot?.statusCheckState || null;
+    blockedSnapshot.failingChecks = summarizeCheckLabels(snapshot?.failingChecks || []);
+  } else if (type === "REVIEW_CHANGES_REQUESTED") {
+    blockedSnapshot.reviewDecision = snapshot?.reviewDecision || null;
+    blockedSnapshot.reviewCursor = cloneJson(snapshot?.reviewCursor || emptyCursor());
+    blockedSnapshot.reviewCommentCursor = cloneJson(snapshot?.reviewCommentCursor || emptyCursor());
+  } else if (type === "NEEDS_REBASE") {
+    blockedSnapshot.mergeStateStatus = snapshot?.mergeStateStatus || null;
+    blockedSnapshot.mergeable = snapshot?.mergeable || null;
+  }
+  return blockedSnapshot;
+}
+
+function buildActionabilityResult(type, actionability, {
+  shouldBlock = false,
+  blockReason = null,
+  blockOwner = null,
+  blockCategory = stateBackedBlockCategory(type),
+  unblockHint = null,
+} = {}) {
+  return {
+    type,
+    actionability,
+    shouldBlock,
+    blockReason: blockReason || "state-trigger-still-active",
+    blockOwner,
+    blockCategory,
+    unblockHint,
+  };
+}
+
+function buildBlockMetadataFromActionability(actionability, snapshot) {
+  return {
+    actionability: actionability.actionability,
+    blockOwner: actionability.blockOwner,
+    blockCategory: actionability.blockCategory,
+    unblockHint: actionability.unblockHint,
+    blockedSnapshot: buildBlockedSnapshot(actionability.type, snapshot),
+  };
+}
+
+function hasActionableMaintainerReviewActivity(snapshot) {
+  const reviewComments = Array.isArray(snapshot?.reviewComments) ? snapshot.reviewComments : [];
+  const reviews = Array.isArray(snapshot?.reviews) ? snapshot.reviews : [];
+  if (reviewComments.some((activity) => classifyActivityCategory(activity) === "maintainer")) {
+    return true;
+  }
+  return reviews.some((activity) => (
+    classifyActivityCategory(activity) === "maintainer"
+    && String(activity.state || "").toUpperCase() === "CHANGES_REQUESTED"
+  ));
+}
+
+function classifyCiFailureActionability(snapshot) {
+  const failingChecks = Array.isArray(snapshot?.failingChecks) ? snapshot.failingChecks : [];
+  const text = flattenClassificationText(failingChecks).toLowerCase();
+  const contributorPatterns = [
+    "dco",
+    "developer certificate",
+    "contributor statement",
+    "signed-off-by",
+    "signoff",
+    "sign-off",
+    "signature",
+    "contributor license agreement",
+    "license agreement",
+  ];
+  const maintainerPatterns = [
+    "label pr",
+    "required label",
+    "label required",
+    "permission",
+    "resource not accessible by integration",
+    "forbidden",
+    "not authorized",
+    "github token",
+    "token permission",
+    "missing secret",
+    "repository secret",
+    "secrets not available",
+    "secret unavailable",
+    "workflow permission",
+  ];
+  const infraPatterns = [
+    "service unavailable",
+    "external service",
+    "infrastructure",
+    "runner unavailable",
+    "capacity",
+    "rate limit",
+  ];
+  const agentPatterns = [
+    "lint",
+    "eslint",
+    "prettier",
+    "format",
+    "test",
+    "unit",
+    "integration",
+    "build",
+    "typecheck",
+    "type check",
+    "typescript",
+    "tsc",
+    "compile",
+    "pytest",
+    "mypy",
+    "ruff",
+    "cargo",
+    "go test",
+    "npm",
+    "pnpm",
+    "yarn",
+  ];
+
+  if (textIncludesAny(text, contributorPatterns)) {
+    return buildActionabilityResult("CI_FAILURE", TASK_ACTIONABILITY.NEEDS_CONTRIBUTOR_ACTION, {
+      shouldBlock: true,
+      blockReason: "needs-contributor-action",
+      blockOwner: "contributor",
+      unblockHint: "Contributor must update commits, PR metadata, or required attestations and push a new head SHA.",
+    });
+  }
+  if (textIncludesAny(text, maintainerPatterns)) {
+    return buildActionabilityResult("CI_FAILURE", TASK_ACTIONABILITY.NEEDS_MAINTAINER_ACTION, {
+      shouldBlock: true,
+      blockReason: "needs-maintainer-action",
+      blockOwner: "maintainer",
+      unblockHint: "Maintainer must adjust labels, permissions, repository settings, secrets, or workflow access.",
+    });
+  }
+  if (textIncludesAny(text, infraPatterns)) {
+    return buildActionabilityResult("CI_FAILURE", TASK_ACTIONABILITY.NEEDS_INFRA_ACTION, {
+      shouldBlock: true,
+      blockReason: "needs-infrastructure-action",
+      blockOwner: "infra",
+      unblockHint: "Infrastructure or external service state must recover before automation can continue.",
+    });
+  }
+  if (text && textIncludesAny(text, agentPatterns)) {
+    return buildActionabilityResult("CI_FAILURE", TASK_ACTIONABILITY.ACTIONABLE_BY_AGENT, {
+      blockOwner: "automation",
+    });
+  }
+  return buildActionabilityResult("CI_FAILURE", TASK_ACTIONABILITY.UNKNOWN, {
+    blockOwner: "automation",
+    unblockHint: "Automation may inspect the latest CI logs once; if still active after handling, keep the task blocked.",
+  });
+}
+
+function classifyStateBackedActionability(type, snapshot) {
+  if (!isTaskTriggerActive(type, snapshot)) {
+    return buildActionabilityResult(type, TASK_ACTIONABILITY.NOT_ACTIONABLE, {
+      blockReason: "state-trigger-cleared",
+      blockOwner: "automation",
+    });
   }
   if (type === "CI_FAILURE") {
-    const text = (snapshot?.failingChecks || [])
-      .map((check) => Object.values(check || {}).filter((value) => value != null).join(" "))
-      .join(" ")
-      .toLowerCase();
-    if (
-      text.includes("dco")
-      || text.includes("contributor statement")
-      || text.includes("signature")
-      || text.includes("permission")
-      || text.includes("label pr")
-      || text.includes("resource not accessible by integration")
-    ) {
-      return "needs-contributor-or-maintainer-action";
-    }
+    return classifyCiFailureActionability(snapshot);
   }
-  return "state-trigger-still-active";
+  if (type === "REVIEW_CHANGES_REQUESTED") {
+    if (hasActionableMaintainerReviewActivity(snapshot)) {
+      return buildActionabilityResult(type, TASK_ACTIONABILITY.ACTIONABLE_BY_AGENT, {
+        blockOwner: "automation",
+      });
+    }
+    return buildActionabilityResult(type, TASK_ACTIONABILITY.NEEDS_MAINTAINER_ACTION, {
+      shouldBlock: true,
+      blockReason: "needs-maintainer-review-decision-change",
+      blockOwner: "maintainer",
+      unblockHint: "Maintainer must update the review decision or leave actionable review comments.",
+    });
+  }
+  if (type === "NEEDS_REBASE") {
+    return buildActionabilityResult(type, TASK_ACTIONABILITY.NEEDS_CONTRIBUTOR_ACTION, {
+      shouldBlock: true,
+      blockReason: "needs-contributor-rebase",
+      blockOwner: "contributor",
+      unblockHint: "Contributor must rebase, merge the base branch, or push a refreshed head commit.",
+    });
+  }
+  return buildActionabilityResult(type, TASK_ACTIONABILITY.UNKNOWN, {
+    blockOwner: "automation",
+  });
+}
+
+function classifyBlockedTaskReason(type, snapshot) {
+  return classifyStateBackedActionability(type, snapshot).blockReason;
 }
 
 function checkLabelForSummary(check) {
@@ -1157,11 +1393,17 @@ function summarizeCheckLabels(checks) {
 }
 
 function buildTaskResultDetail(result) {
-  return {
+  const detail = {
     status: result.status,
     reason: result.reason || "",
     summary: result.summary || "",
   };
+  for (const key of ["actionability", "blockOwner", "blockCategory", "unblockHint"]) {
+    if (result[key]) {
+      detail[key] = result[key];
+    }
+  }
+  return detail;
 }
 
 function buildBlockedTaskDetailsFromResult(task, result, snapshot = null) {
@@ -1189,6 +1431,10 @@ function normalizeTaskResultPayload(payload) {
     status: payload.status,
     reason: truncate(payload.reason || "", 200),
     summary: truncate(payload.summary || "", 400),
+    actionability: normalizeTaskActionability(payload.actionability),
+    blockOwner: normalizeTaskMetadataString(payload.blockOwner, 80),
+    blockCategory: normalizeTaskMetadataString(payload.blockCategory, 80),
+    unblockHint: normalizeTaskMetadataString(payload.unblockHint, 400),
   };
 }
 
@@ -1848,6 +2094,12 @@ class EventTaskManager {
       event.claimedAt = null;
       event.runningPid = null;
       event.lastOutputAt = null;
+      event.blockedAt = null;
+      event.blockReason = null;
+      event.blockOwner = null;
+      event.blockCategory = null;
+      event.unblockHint = null;
+      event.blockedSnapshot = null;
       resetCount += 1;
     }
     return resetCount;
@@ -1874,6 +2126,10 @@ class EventTaskManager {
       lastOutputAt: null,
       blockedAt: null,
       blockReason: null,
+      blockOwner: null,
+      blockCategory: null,
+      unblockHint: null,
+      blockedSnapshot: null,
       boundary: normalizeBoundary(boundary),
       details: cloneJson(details || {}),
     };
@@ -1913,6 +2169,12 @@ class EventTaskManager {
     event.claimedAt = nowIso();
     event.lastOutputAt = event.claimedAt;
     event.runningPid = pid || null;
+    event.blockedAt = null;
+    event.blockReason = null;
+    event.blockOwner = null;
+    event.blockCategory = null;
+    event.unblockHint = null;
+    event.blockedSnapshot = null;
     return event;
   }
 
@@ -1927,6 +2189,10 @@ class EventTaskManager {
     event.lastOutputAt = null;
     event.blockedAt = null;
     event.blockReason = null;
+    event.blockOwner = null;
+    event.blockCategory = null;
+    event.unblockHint = null;
+    event.blockedSnapshot = null;
     if (options.details && typeof options.details === "object") {
       event.details = cloneJson(options.details);
     }
@@ -1954,6 +2220,12 @@ class EventTaskManager {
     event.claimedAt = null;
     event.runningPid = null;
     event.lastOutputAt = null;
+    event.blockedAt = null;
+    event.blockReason = null;
+    event.blockOwner = null;
+    event.blockCategory = null;
+    event.unblockHint = null;
+    event.blockedSnapshot = null;
     return event;
   }
 
@@ -1966,19 +2238,54 @@ class EventTaskManager {
     return event;
   }
 
-  block(id, blockReason, details, boundary) {
+  unblock(id, details, boundary) {
     const event = this.getById(id);
     if (!event) {
       return null;
     }
+    event.status = TASK_STATUS.PENDING;
+    event.attemptCount = 0;
+    event.lastAttemptAt = null;
+    event.nextRetryAt = nowIso();
+    event.lastError = null;
+    event.claimedAt = null;
+    event.runningPid = null;
+    event.lastOutputAt = null;
+    event.blockedAt = null;
+    event.blockReason = null;
+    event.blockOwner = null;
+    event.blockCategory = null;
+    event.unblockHint = null;
+    event.blockedSnapshot = null;
+    if (details && typeof details === "object") {
+      event.details = cloneJson(details);
+    }
+    if (boundary) {
+      event.boundary = normalizeBoundary(boundary);
+    }
+    return event;
+  }
+
+  block(id, blockReason, details, boundary, metadata = {}) {
+    const event = this.getById(id);
+    if (!event) {
+      return null;
+    }
+    const wasBlocked = event.status === TASK_STATUS.BLOCKED;
     event.status = TASK_STATUS.BLOCKED;
     event.lastError = truncate(blockReason || "state-trigger-still-active", 400);
     event.blockReason = truncate(blockReason || "state-trigger-still-active", 400);
-    event.blockedAt = nowIso();
+    event.blockedAt = wasBlocked && event.blockedAt ? event.blockedAt : nowIso();
     event.nextRetryAt = null;
     event.claimedAt = null;
     event.runningPid = null;
     event.lastOutputAt = null;
+    event.blockOwner = normalizeTaskMetadataString(metadata.blockOwner, 80);
+    event.blockCategory = normalizeTaskMetadataString(metadata.blockCategory, 80);
+    event.unblockHint = normalizeTaskMetadataString(metadata.unblockHint, 400);
+    event.blockedSnapshot = metadata.blockedSnapshot && typeof metadata.blockedSnapshot === "object"
+      ? cloneJson(metadata.blockedSnapshot)
+      : null;
     if (details && typeof details === "object") {
       event.details = cloneJson(details);
     }
@@ -2291,9 +2598,8 @@ class EventListener {
         type: "CI_FAILURE",
         severity: TASK_EVENT_SEVERITY.CI_FAILURE,
         boundary: fullBoundary,
-        details: buildTaskDetails("CI_FAILURE", snapshot, {
-          failingChecks: snapshot.failingChecks,
-        }),
+        details: buildStateBackedTaskDetails("CI_FAILURE", snapshot),
+        actionability: classifyStateBackedActionability("CI_FAILURE", snapshot),
       });
     }
 
@@ -2302,9 +2608,8 @@ class EventListener {
         type: "REVIEW_CHANGES_REQUESTED",
         severity: TASK_EVENT_SEVERITY.REVIEW_CHANGES_REQUESTED,
         boundary: fullBoundary,
-        details: buildTaskDetails("REVIEW_CHANGES_REQUESTED", snapshot, {
-          reviewDecision: snapshot.reviewDecision,
-        }),
+        details: buildStateBackedTaskDetails("REVIEW_CHANGES_REQUESTED", snapshot),
+        actionability: classifyStateBackedActionability("REVIEW_CHANGES_REQUESTED", snapshot),
       });
     }
 
@@ -2334,10 +2639,8 @@ class EventListener {
         type: "NEEDS_REBASE",
         severity: TASK_EVENT_SEVERITY.NEEDS_REBASE,
         boundary: fullBoundary,
-        details: buildTaskDetails("NEEDS_REBASE", snapshot, {
-          mergeStateStatus: snapshot.mergeStateStatus,
-          mergeable: snapshot.mergeable,
-        }),
+        details: buildStateBackedTaskDetails("NEEDS_REBASE", snapshot),
+        actionability: classifyStateBackedActionability("NEEDS_REBASE", snapshot),
       });
     }
 
@@ -2394,11 +2697,42 @@ class EventListener {
         continue;
       }
       const previousTaskResult = primary.status === TASK_STATUS.BLOCKED ? primary.details?.taskResult : null;
+      const boundaryAdvanced = parseTimestampMs(candidate.boundary?.snapshotUpdatedAt) > parseTimestampMs(primary.boundary?.snapshotUpdatedAt);
       primary.details = cloneJson(candidate.details);
       if (previousTaskResult) {
         primary.details.taskResult = cloneJson(previousTaskResult);
       }
       primary.boundary = normalizeBoundary(candidate.boundary);
+      if (candidate.actionability?.shouldBlock) {
+        const wasBlocked = primary.status === TASK_STATUS.BLOCKED;
+        this.taskManager.block(
+          primary.id,
+          candidate.actionability.blockReason,
+          primary.details,
+          primary.boundary,
+          buildBlockMetadataFromActionability(candidate.actionability, snapshot),
+        );
+        this.actionLogger.writeLine(
+          `[${nowStamp()}] ${wasBlocked ? "event_blocked_task_refreshed" : "event_task_blocked"} pr=${snapshot.prKey} type=${primary.type} task=${primary.id} blockReason=${candidate.actionability.blockReason} blockOwner=${candidate.actionability.blockOwner || "unknown"}`,
+        );
+        candidateTasks.delete(type);
+        continue;
+      }
+      if (primary.status === TASK_STATUS.BLOCKED && STATE_BACKED_TASK_TYPES.has(primary.type)) {
+        if (previousTaskResult && !boundaryAdvanced) {
+          this.actionLogger.writeLine(
+            `[${nowStamp()}] event_blocked_task_refreshed pr=${snapshot.prKey} type=${primary.type} task=${primary.id} blockReason=${primary.blockReason || "state-trigger-still-active"}`,
+          );
+          candidateTasks.delete(type);
+          continue;
+        }
+        this.taskManager.unblock(primary.id, candidate.details, candidate.boundary);
+        this.actionLogger.writeLine(
+          `[${nowStamp()}] event_task_unblocked pr=${snapshot.prKey} type=${primary.type} task=${primary.id} actionability=${candidate.actionability?.actionability || TASK_ACTIONABILITY.UNKNOWN}`,
+        );
+        candidateTasks.delete(type);
+        continue;
+      }
       this.actionLogger.writeLine(
         `[${nowStamp()}] event_reconciled_refreshed pr=${snapshot.prKey} type=${primary.type} task=${primary.id} status=${primary.status}`,
       );
@@ -2413,6 +2747,19 @@ class EventListener {
       const task = this.taskManager.add(snapshot.prKey, event.type, event.severity, event.details, event.boundary);
       if (this.config.eventNotificationEnabled) {
         notifyEvent(task.type, task.prKey, task.severity, this.actionLogger);
+      }
+      if (event.actionability?.shouldBlock) {
+        this.taskManager.block(
+          task.id,
+          event.actionability.blockReason,
+          event.details,
+          event.boundary,
+          buildBlockMetadataFromActionability(event.actionability, snapshot),
+        );
+        this.actionLogger.writeLine(
+          `[${nowStamp()}] event_task_blocked pr=${snapshot.prKey} type=${task.type} task=${task.id} blockReason=${event.actionability.blockReason} blockOwner=${event.actionability.blockOwner || "unknown"}`,
+        );
+        continue;
       }
       this.actionLogger.writeLine(`[${nowStamp()}] event_added pr=${snapshot.prKey} type=${task.type} severity=${task.severity}`);
     }
@@ -2797,7 +3144,8 @@ class EventListener {
     }
 
     if (STATE_BACKED_TASK_TYPES.has(task.type) && isTaskTriggerActive(task.type, refreshedSnapshot)) {
-      await this._handleTaskBlocked(task, classifyBlockedTaskReason(task.type, refreshedSnapshot), refreshedSnapshot);
+      const actionability = classifyStateBackedActionability(task.type, refreshedSnapshot);
+      await this._handleTaskBlocked(task, actionability.blockReason, refreshedSnapshot, null, actionability);
       try {
         await this._scanSnapshot(refreshedSnapshot);
         await this.saveAll();
@@ -2822,7 +3170,12 @@ class EventListener {
     }
 
     if (STATE_BACKED_TASK_TYPES.has(task.type) && isTaskTriggerActive(task.type, refreshedSnapshot)) {
-      await this._handleTaskBlocked(task, "not-actionable-trigger-still-active", refreshedSnapshot, result);
+      const actionability = classifyStateBackedActionability(task.type, refreshedSnapshot);
+      await this._handleTaskBlocked(task, "not-actionable-trigger-still-active", refreshedSnapshot, result, {
+        ...actionability,
+        actionability: TASK_ACTIONABILITY.NOT_ACTIONABLE,
+        blockOwner: actionability.blockOwner || "human",
+      });
       try {
         await this._scanSnapshot(refreshedSnapshot);
         await this.saveAll();
@@ -2863,11 +3216,21 @@ class EventListener {
     }
 
     const blockReason = result.reason || result.status;
+    const actionability = {
+      type: task.type,
+      actionability: result.actionability || (result.status === "needs_human"
+        ? TASK_ACTIONABILITY.NEEDS_HUMAN_DECISION
+        : TASK_ACTIONABILITY.UNKNOWN),
+      blockOwner: result.blockOwner || (result.status === "needs_human" ? "human" : "automation"),
+      blockCategory: result.blockCategory || (STATE_BACKED_TASK_TYPES.has(task.type) ? stateBackedBlockCategory(task.type) : "task-result"),
+      unblockHint: result.unblockHint || null,
+    };
     const updated = this.taskManager.block(
       task.id,
       blockReason,
       buildBlockedTaskDetailsFromResult(task, result, refreshedSnapshot),
       refreshedSnapshot ? buildBoundaryFromSnapshot(refreshedSnapshot) : task.boundary,
+      buildBlockMetadataFromActionability(actionability, refreshedSnapshot),
     );
     if (!updated) {
       return;
@@ -2879,7 +3242,7 @@ class EventListener {
     await this.taskManager.save();
   }
 
-  async _handleTaskBlocked(task, blockReason, snapshot, result = null) {
+  async _handleTaskBlocked(task, blockReason, snapshot, result = null, actionability = null) {
     const updated = this.taskManager.block(
       task.id,
       blockReason,
@@ -2887,6 +3250,7 @@ class EventListener {
         ? buildBlockedTaskDetailsFromResult(task, result, snapshot)
         : buildStateBackedTaskDetails(task.type, snapshot),
       buildBoundaryFromSnapshot(snapshot),
+      buildBlockMetadataFromActionability(actionability || classifyStateBackedActionability(task.type, snapshot), snapshot),
     );
     if (!updated) {
       return;
@@ -2939,6 +3303,25 @@ class EventListener {
       } catch (error) {
         this.actionLogger.writeLine(
           `[${nowStamp()}] event_failure_refresh_failed pr=${task.prKey} task=${task.id} type=${task.type} reason=${truncate(error.message || error, 300)}`,
+        );
+        await this.taskManager.save();
+      }
+      return { handled: true, options };
+    }
+
+    const actionability = classifyStateBackedActionability(task.type, snapshot);
+    if (actionability.shouldBlock) {
+      const updated = this.taskManager.block(
+        task.id,
+        actionability.blockReason,
+        options.details,
+        options.boundary,
+        buildBlockMetadataFromActionability(actionability, snapshot),
+      );
+      if (updated) {
+        this._processing.delete(task.prKey);
+        this.actionLogger.writeLine(
+          `[${nowStamp()}] event_task_blocked pr=${task.prKey} task=${task.id} type=${task.type} blockReason=${actionability.blockReason} trigger=${truncate(describeActiveTaskTrigger(task.type, snapshot), 300)}`,
         );
         await this.taskManager.save();
       }
@@ -3330,6 +3713,7 @@ if (require.main === module) {
     EventListener,
     EventState,
     EventTaskManager,
+    TASK_ACTIONABILITY,
     TASK_EVENT_SEVERITY,
     TASK_STATUS,
     baselineFromSnapshot,
@@ -3342,6 +3726,7 @@ if (require.main === module) {
     buildSubagentPrompt,
     buildTaskResultRecord,
     classifyBlockedTaskReason,
+    classifyStateBackedActionability,
     classifyActivityCategory,
     classifyStatusChecks,
     compareStableId,

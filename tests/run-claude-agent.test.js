@@ -105,6 +105,10 @@ function makeTask(overrides = {}) {
     lastOutputAt: overrides.lastOutputAt || null,
     blockedAt: overrides.blockedAt || null,
     blockReason: overrides.blockReason || null,
+    blockOwner: overrides.blockOwner || null,
+    blockCategory: overrides.blockCategory || null,
+    unblockHint: overrides.unblockHint || null,
+    blockedSnapshot: overrides.blockedSnapshot || null,
     boundary: overrides.boundary || agent.normalizeBoundary(null),
     details: overrides.details || {},
     ...(Object.prototype.hasOwnProperty.call(overrides, "nextRetryAt") ? { nextRetryAt: overrides.nextRetryAt } : {}),
@@ -178,6 +182,75 @@ test("state-backed trigger helper tracks active PR states", () => {
     mergeable: "MERGEABLE",
     unresolvedReviewThreadCount: 0,
   })), false);
+});
+
+test("state-backed actionability separates agent work from human blockers", () => {
+  const dco = agent.classifyStateBackedActionability("CI_FAILURE", makeSnapshot({
+    statusCheckState: "FAILED",
+    failingChecks: [{ label: "DCO / Developer Certificate of Origin", conclusion: "FAILURE" }],
+  }));
+  assert.equal(dco.actionability, agent.TASK_ACTIONABILITY.NEEDS_CONTRIBUTOR_ACTION);
+  assert.equal(dco.shouldBlock, true);
+  assert.equal(dco.blockOwner, "contributor");
+  assert.equal(dco.blockReason, "needs-contributor-action");
+
+  const permission = agent.classifyStateBackedActionability("CI_FAILURE", makeSnapshot({
+    statusCheckState: "FAILED",
+    failingChecks: [{ label: "Resource not accessible by integration", conclusion: "FAILURE" }],
+  }));
+  assert.equal(permission.actionability, agent.TASK_ACTIONABILITY.NEEDS_MAINTAINER_ACTION);
+  assert.equal(permission.blockOwner, "maintainer");
+
+  const lint = agent.classifyStateBackedActionability("CI_FAILURE", makeSnapshot({
+    statusCheckState: "FAILED",
+    failingChecks: [{ label: "lint / eslint", conclusion: "FAILURE" }],
+  }));
+  assert.equal(lint.actionability, agent.TASK_ACTIONABILITY.ACTIONABLE_BY_AGENT);
+  assert.equal(lint.shouldBlock, false);
+
+  const reviewWithoutComments = agent.classifyStateBackedActionability("REVIEW_CHANGES_REQUESTED", makeSnapshot({
+    reviewDecision: "CHANGES_REQUESTED",
+  }));
+  assert.equal(reviewWithoutComments.actionability, agent.TASK_ACTIONABILITY.NEEDS_MAINTAINER_ACTION);
+  assert.equal(reviewWithoutComments.shouldBlock, true);
+
+  const reviewWithOnlyApproval = agent.classifyStateBackedActionability("REVIEW_CHANGES_REQUESTED", makeSnapshot({
+    reviewDecision: "CHANGES_REQUESTED",
+    reviews: [
+      makeActivity({
+        stream: "review",
+        id: 990,
+        createdAt: "2026-04-24T00:01:00.000Z",
+        authorLogin: "maintainer",
+        authorAssociation: "MEMBER",
+        state: "APPROVED",
+      }),
+    ],
+  }));
+  assert.equal(reviewWithOnlyApproval.actionability, agent.TASK_ACTIONABILITY.NEEDS_MAINTAINER_ACTION);
+
+  const reviewWithComments = agent.classifyStateBackedActionability("REVIEW_CHANGES_REQUESTED", makeSnapshot({
+    reviewDecision: "CHANGES_REQUESTED",
+    reviewComments: [
+      makeActivity({
+        stream: "review_comment",
+        id: 991,
+        createdAt: "2026-04-24T00:01:00.000Z",
+        authorLogin: "maintainer",
+        authorAssociation: "MEMBER",
+        body: "Please update this line.",
+      }),
+    ],
+  }));
+  assert.equal(reviewWithComments.actionability, agent.TASK_ACTIONABILITY.ACTIONABLE_BY_AGENT);
+  assert.equal(reviewWithComments.shouldBlock, false);
+
+  const rebase = agent.classifyStateBackedActionability("NEEDS_REBASE", makeSnapshot({
+    mergeStateStatus: "DIRTY",
+    mergeable: "CONFLICTING",
+  }));
+  assert.equal(rebase.actionability, agent.TASK_ACTIONABILITY.NEEDS_CONTRIBUTOR_ACTION);
+  assert.equal(rebase.shouldBlock, true);
 });
 
 test("status rollup uses the latest run for each check label", () => {
@@ -361,10 +434,16 @@ test("task result parser accepts v2 statuses and legacy success ack", () => {
       status,
       reason: `${status} reason`,
       summary: `${status} summary`,
+      actionability: "needs_contributor_action",
+      blockOwner: "contributor",
+      blockCategory: "ci",
+      unblockHint: "Push a new commit.",
     })}`, task);
     assert.equal(parsed.valid, true);
     assert.equal(parsed.payload.status, status);
     assert.equal(parsed.payload.reason, `${status} reason`);
+    assert.equal(parsed.payload.actionability, "needs_contributor_action");
+    assert.equal(parsed.payload.blockOwner, "contributor");
   }
 
   const legacy = agent.parseTaskResultLine(`__EVENT_RESULT__ ${JSON.stringify({
@@ -453,6 +532,10 @@ test("normalizeTaskRecord preserves running task ownership", () => {
     claimedAt: "2026-04-24T00:01:00.000Z",
     runningPid: 12345,
     lastOutputAt: "2026-04-24T00:02:00.000Z",
+    blockOwner: "contributor",
+    blockCategory: "ci",
+    unblockHint: "Push a new commit.",
+    blockedSnapshot: { headSha: "abc" },
     nextRetryAt: null,
   }));
 
@@ -460,6 +543,10 @@ test("normalizeTaskRecord preserves running task ownership", () => {
   assert.equal(normalized.claimedAt, "2026-04-24T00:01:00.000Z");
   assert.equal(normalized.runningPid, 12345);
   assert.equal(normalized.lastOutputAt, "2026-04-24T00:02:00.000Z");
+  assert.equal(normalized.blockOwner, "contributor");
+  assert.equal(normalized.blockCategory, "ci");
+  assert.equal(normalized.unblockHint, "Push a new commit.");
+  assert.deepStrictEqual(normalized.blockedSnapshot, { headSha: "abc" });
 });
 
 test("claim and heartbeat update running task last output time", () => {
@@ -808,6 +895,56 @@ test("scan refreshes existing task details only with monotonic boundary", async 
   assert.equal(task.details.failingChecks[0].label, "ci-new");
   assert.equal(task.boundary.snapshotUpdatedAt, "2026-04-24T00:11:00.000Z");
   assert.equal(listener.actionLogger.lines.some((line) => line.includes("event_boundary_regressed")), true);
+});
+
+test("scan blocks non-actionable state-backed tasks before dispatch", async () => {
+  const listener = createListener();
+  const snapshot = makeSnapshot({
+    prKey: "demo/repo#52",
+    statusCheckState: "FAILED",
+    failingChecks: [{ label: "DCO / Developer Certificate of Origin", conclusion: "FAILURE" }],
+  });
+
+  await listener._scanSnapshot(snapshot);
+
+  const task = listener.taskManager.events[0];
+  assert.equal(task.type, "CI_FAILURE");
+  assert.equal(task.status, agent.TASK_STATUS.BLOCKED);
+  assert.equal(task.blockReason, "needs-contributor-action");
+  assert.equal(task.blockOwner, "contributor");
+  assert.equal(task.blockCategory, "ci");
+  assert.match(task.unblockHint, /Contributor/);
+  assert.equal(task.blockedSnapshot.statusCheckState, "FAILED");
+  assert.deepStrictEqual(listener.taskManager.getRunnable(), []);
+  assert.ok(listener.actionLogger.lines.some((line) => line.includes("event_task_blocked")));
+});
+
+test("scan unblocks blocked state-backed task when latest snapshot becomes actionable", async () => {
+  const listener = createListener();
+  const firstSnapshot = makeSnapshot({
+    prKey: "demo/repo#53",
+    updatedAt: "2026-04-24T00:10:00.000Z",
+    statusCheckState: "FAILED",
+    failingChecks: [{ label: "DCO", conclusion: "FAILURE" }],
+  });
+  await listener._scanSnapshot(firstSnapshot);
+  assert.equal(listener.taskManager.events[0].status, agent.TASK_STATUS.BLOCKED);
+
+  const actionableSnapshot = makeSnapshot({
+    prKey: firstSnapshot.prKey,
+    updatedAt: "2026-04-24T00:20:00.000Z",
+    statusCheckState: "FAILED",
+    failingChecks: [{ label: "lint / eslint", conclusion: "FAILURE" }],
+  });
+  await listener._scanSnapshot(actionableSnapshot);
+
+  const task = listener.taskManager.events[0];
+  assert.equal(task.status, agent.TASK_STATUS.PENDING);
+  assert.equal(task.attemptCount, 0);
+  assert.equal(task.blockReason, null);
+  assert.equal(task.blockOwner, null);
+  assert.equal(task.details.failingChecks[0].label, "lint / eslint");
+  assert.ok(listener.actionLogger.lines.some((line) => line.includes("event_task_unblocked")));
 });
 
 test("comment success advances only the matching category baseline", () => {
@@ -1386,7 +1523,9 @@ test("state-backed success with active trigger blocks instead of retrying", asyn
 
   const updated = listener.taskManager.getById(task.id);
   assert.equal(updated.status, agent.TASK_STATUS.BLOCKED);
-  assert.equal(updated.blockReason, "needs-contributor-or-maintainer-action");
+  assert.equal(updated.blockReason, "needs-contributor-action");
+  assert.equal(updated.blockOwner, "contributor");
+  assert.equal(updated.blockCategory, "ci");
   assert.equal(updated.nextRetryAt, null);
   assert.deepStrictEqual(updated.details.failingChecks, snapshot.failingChecks);
   assert.equal(listener._processing.has(snapshot.prKey), false);
@@ -1424,6 +1563,8 @@ test("blocked task result stores blocked state without retrying", async () => {
   assert.equal(updated.attemptCount, 1);
   assert.equal(updated.nextRetryAt, null);
   assert.equal(updated.blockReason, "needs maintainer decision");
+  assert.equal(updated.blockOwner, "human");
+  assert.equal(updated.blockCategory, "task-result");
   assert.deepStrictEqual(updated.details.taskResult, {
     status: "needs_human",
     reason: "needs maintainer decision",
@@ -1601,6 +1742,37 @@ test("state-backed failure refreshes boundary and details before retry", async (
   assert.equal(updated.details.failingChecks[0].label, "ci-new");
   assert.equal(updated.lastOutputAt, null);
   assert.match(updated.lastError, /subagent_exit_1/);
+});
+
+test("state-backed failure blocks contributor-only triggers instead of retrying", async () => {
+  const refreshedSnapshot = makeSnapshot({
+    prKey: "demo/repo#54",
+    updatedAt: "2026-04-24T00:10:00.000Z",
+    statusCheckState: "FAILED",
+    failingChecks: [{ label: "DCO / signed-off-by", conclusion: "FAILURE" }],
+  });
+  const listener = createListener({
+    fetchPrSnapshot: async () => refreshedSnapshot,
+  });
+  listener.taskManager.save = async () => {};
+  const task = listener.taskManager.add(
+    refreshedSnapshot.prKey,
+    "CI_FAILURE",
+    agent.TASK_EVENT_SEVERITY.CI_FAILURE,
+    { snapshotSummary: "old", failingChecks: [{ label: "ci-old" }] },
+    agent.normalizeBoundary({ snapshotUpdatedAt: "2026-04-24T00:00:00.000Z" }),
+  );
+  listener.taskManager.claim(task.id, 123);
+
+  await listener._handleTaskFailure(task, "subagent_exit_1");
+
+  const updated = listener.taskManager.getById(task.id);
+  assert.equal(updated.status, agent.TASK_STATUS.BLOCKED);
+  assert.equal(updated.blockReason, "needs-contributor-action");
+  assert.equal(updated.blockOwner, "contributor");
+  assert.equal(updated.nextRetryAt, null);
+  assert.equal(updated.details.failingChecks[0].label, "DCO / signed-off-by");
+  assert.ok(listener.actionLogger.lines.some((line) => line.includes("event_task_blocked")));
 });
 
 test("state-backed failure clears task when refreshed trigger disappears", async () => {
