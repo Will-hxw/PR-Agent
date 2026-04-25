@@ -86,6 +86,25 @@ function makeSnapshot(overrides = {}) {
   return snapshot;
 }
 
+function makeTask(overrides = {}) {
+  return {
+    id: overrides.id || "task-1",
+    prKey: overrides.prKey || "demo/repo#1",
+    type: overrides.type || "NEW_COMMENT",
+    severity: overrides.severity || agent.TASK_EVENT_SEVERITY.NEW_COMMENT,
+    createdAt: overrides.createdAt || "2026-04-24T00:01:00.000Z",
+    status: overrides.status || agent.TASK_STATUS.PENDING,
+    attemptCount: overrides.attemptCount || 0,
+    lastAttemptAt: overrides.lastAttemptAt || null,
+    lastError: overrides.lastError || null,
+    claimedAt: overrides.claimedAt || null,
+    runningPid: overrides.runningPid || null,
+    boundary: overrides.boundary || agent.normalizeBoundary(null),
+    details: overrides.details || {},
+    ...(Object.prototype.hasOwnProperty.call(overrides, "nextRetryAt") ? { nextRetryAt: overrides.nextRetryAt } : {}),
+  };
+}
+
 test("stale pending and dead tasks are removed when trigger disappears", async () => {
   const listener = createListener();
   const failedSnapshot = makeSnapshot({
@@ -244,24 +263,75 @@ test("stable id ordering is deterministic for mixed id strings", () => {
 test("task dispatch uses stable id ordering for ties", () => {
   const manager = new agent.EventTaskManager();
   const createdAt = "2026-04-24T00:01:00.000Z";
-  manager.events = ["a", "2", "B", "10"].map((id) => ({
+  manager.events = ["a", "2", "B", "10"].map((id) => makeTask({
     id,
     prKey: `demo/repo#${id}`,
-    type: "NEW_COMMENT",
-    severity: agent.TASK_EVENT_SEVERITY.NEW_COMMENT,
     createdAt,
-    status: agent.TASK_STATUS.PENDING,
-    attemptCount: 0,
-    lastAttemptAt: null,
     nextRetryAt: "2026-04-24T00:00:00.000Z",
-    lastError: null,
-    claimedAt: null,
-    runningPid: null,
-    boundary: agent.normalizeBoundary(null),
-    details: {},
   }));
 
   assert.deepStrictEqual(manager.getRunnable(Date.parse(createdAt)).map((event) => event.id), ["10", "2", "B", "a"]);
+});
+
+test("getRunnable handles missing invalid and scheduled retry times conservatively", () => {
+  const manager = new agent.EventTaskManager();
+  const nowMs = Date.parse("2026-04-24T00:10:00.000Z");
+  manager.events = [
+    makeTask({ id: "past", nextRetryAt: "2026-04-24T00:09:00.000Z" }),
+    makeTask({ id: "future", nextRetryAt: "2026-04-24T00:11:00.000Z" }),
+    makeTask({ id: "missing" }),
+    makeTask({ id: "null", nextRetryAt: null }),
+    makeTask({ id: "empty", nextRetryAt: "" }),
+    makeTask({ id: "invalid", nextRetryAt: "not-a-date" }),
+  ];
+
+  assert.deepStrictEqual(manager.getRunnable(nowMs).map((event) => event.id), ["missing", "past"]);
+});
+
+test("dedupe helper matches any existing task for the same PR and type", () => {
+  const manager = new agent.EventTaskManager();
+  manager.events = [
+    makeTask({ id: "pending", prKey: "demo/repo#1", type: "NEW_COMMENT", status: agent.TASK_STATUS.PENDING }),
+    makeTask({ id: "running", prKey: "demo/repo#2", type: "NEW_COMMENT", status: agent.TASK_STATUS.RUNNING }),
+    makeTask({ id: "dead", prKey: "demo/repo#3", type: "NEW_COMMENT", status: agent.TASK_STATUS.DEAD }),
+  ];
+
+  assert.equal(manager.hasTaskForPrAndType("demo/repo#1", "NEW_COMMENT"), true);
+  assert.equal(manager.hasTaskForPrAndType("demo/repo#2", "NEW_COMMENT"), true);
+  assert.equal(manager.hasTaskForPrAndType("demo/repo#3", "NEW_COMMENT"), true);
+  assert.equal(manager.hasTaskForPrAndType("demo/repo#1", "BOT_COMMENT"), false);
+  assert.equal(manager.hasTaskForPrAndType("demo/repo#4", "NEW_COMMENT"), false);
+});
+
+test("GraphQL args validate numeric variables as GraphQL Int values", () => {
+  assert.deepStrictEqual(
+    agent.buildGhGraphQLArgs("query", {
+      owner: "demo",
+      repo: "repo",
+      prNumber: 2147483647,
+      after: "cursor",
+      omitted: null,
+    }),
+    [
+      "api",
+      "graphql",
+      "-f",
+      "query=query",
+      "-f",
+      "owner=demo",
+      "-f",
+      "repo=repo",
+      "-F",
+      "prNumber=2147483647",
+      "-f",
+      "after=cursor",
+    ],
+  );
+
+  assert.throws(() => agent.buildGhGraphQLArgs("query", { prNumber: 2147483648 }), /prNumber is outside Int range/);
+  assert.throws(() => agent.buildGhGraphQLArgs("query", { prNumber: 1.5 }), /prNumber is outside Int range/);
+  assert.throws(() => agent.buildGhGraphQLArgs("query", { prNumber: Number.NaN }), /prNumber is outside Int range/);
+  assert.throws(() => agent.buildGhGraphQLArgs("query", { prNumber: Number.POSITIVE_INFINITY }), /prNumber is outside Int range/);
 });
 
 test("atomic json writes target file and leaves no temp file behind", async () => {

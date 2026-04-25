@@ -85,6 +85,8 @@ const GH_CLEANUP_TIMEOUT_MS = 30 * 1000;
 const SUBAGENT_TIMEOUT_MS = 30 * 60 * 1000;
 const SUBAGENT_FORCE_KILL_GRACE_MS = 5 * 1000;
 const MAX_PARALLEL_SUBAGENTS = 3;
+const GRAPHQL_INT_MIN = -2147483648;
+const GRAPHQL_INT_MAX = 2147483647;
 const SEVERITY_ORDER = {
   HEAVY: 0,
   LIGHT: 1,
@@ -335,6 +337,20 @@ function parseTimestampMs(value) {
   if (!value) return 0;
   const parsed = Date.parse(value);
   return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function parseRetryTimestampMs(event) {
+  if (!Object.prototype.hasOwnProperty.call(event, "nextRetryAt")) {
+    return { state: "missing", value: 0 };
+  }
+  if (typeof event.nextRetryAt !== "string" || event.nextRetryAt.trim() === "") {
+    return { state: "invalid", value: null };
+  }
+  const parsed = Date.parse(event.nextRetryAt);
+  if (!Number.isFinite(parsed)) {
+    return { state: "invalid", value: null };
+  }
+  return { state: "valid", value: parsed };
 }
 
 function truncate(text, maxLength = 180) {
@@ -1163,9 +1179,25 @@ async function ghPrViewJson(owner, repo, prNumber, fields, options = {}) {
 }
 
 async function ghGraphQLJson(query, variables, options = {}) {
+  const args = buildGhGraphQLArgs(query, variables);
+  const { stdout } = await runCommandWithTimeout("gh", args, {
+    timeoutMs: options.timeoutMs ?? GH_TIMEOUT_MS,
+    cwd: options.cwd,
+  });
+  return JSON.parse(stdout);
+}
+
+function validateGraphQLIntVariable(key, value) {
+  if (!Number.isSafeInteger(value) || value < GRAPHQL_INT_MIN || value > GRAPHQL_INT_MAX) {
+    throw new Error(`GraphQL numeric variable ${key} is outside Int range`);
+  }
+}
+
+function buildGhGraphQLArgs(query, variables = {}) {
   const args = ["api", "graphql", "-f", `query=${query}`];
   for (const [key, value] of Object.entries(variables || {})) {
     if (typeof value === "number") {
+      validateGraphQLIntVariable(key, value);
       args.push("-F", `${key}=${value}`);
     } else if (value == null) {
       continue;
@@ -1173,11 +1205,7 @@ async function ghGraphQLJson(query, variables, options = {}) {
       args.push("-f", `${key}=${value}`);
     }
   }
-  const { stdout } = await runCommandWithTimeout("gh", args, {
-    timeoutMs: options.timeoutMs ?? GH_TIMEOUT_MS,
-    cwd: options.cwd,
-  });
-  return JSON.parse(stdout);
+  return args;
 }
 
 async function fetchPaginatedArray(endpointBase, options = {}) {
@@ -1588,7 +1616,7 @@ class EventTaskManager {
     return resetCount;
   }
 
-  hasBlocking(prKey, type) {
+  hasTaskForPrAndType(prKey, type) {
     return this.events.some((event) => event.prKey === prKey && event.type === type);
   }
 
@@ -1623,7 +1651,13 @@ class EventTaskManager {
 
   getRunnable(nowMs = Date.now()) {
     return this.events
-      .filter((event) => event.status === TASK_STATUS.PENDING && (!event.nextRetryAt || parseTimestampMs(event.nextRetryAt) <= nowMs))
+      .filter((event) => {
+        if (event.status !== TASK_STATUS.PENDING) {
+          return false;
+        }
+        const retry = parseRetryTimestampMs(event);
+        return retry.state === "missing" || (retry.state === "valid" && retry.value <= nowMs);
+      })
       .sort(compareTasksForDispatch);
   }
 
@@ -1977,7 +2011,7 @@ class EventListener {
     }
 
     for (const event of candidateTasks.values()) {
-      if (this.taskManager.hasBlocking(snapshot.prKey, event.type)) {
+      if (this.taskManager.hasTaskForPrAndType(snapshot.prKey, event.type)) {
         this.actionLogger.writeLine(`[${nowStamp()}] event_deduped pr=${snapshot.prKey} type=${event.type}`);
         continue;
       }
@@ -2669,6 +2703,7 @@ if (require.main === module) {
     buildCommentBaselinesFromSnapshot,
     buildCommentCursorSet,
     buildCursor,
+    buildGhGraphQLArgs,
     classifyActivityCategory,
     classifyStatusChecks,
     compareStableId,
@@ -2688,6 +2723,7 @@ if (require.main === module) {
     normalizeBoundary,
     normalizeCommentBaselines,
     normalizeCommentCursorSet,
+    parseRetryTimestampMs,
     parseOwnerRepoFromRepositoryUrl,
     refreshEventJsonOnce,
     shouldTrackOpenPrSearchItem,
