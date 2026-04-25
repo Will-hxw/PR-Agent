@@ -201,6 +201,22 @@ test("startup and polling use the same JSON generation path", async () => {
   assert.deepStrictEqual(calls, ["generate", "dispatch"]);
 });
 
+test("standalone refresh uses bootstrap path without dispatch", async () => {
+  const listener = createListener();
+  const calls = [];
+  listener.bootstrapRefresh = async () => {
+    calls.push("bootstrap");
+  };
+  listener._dispatchRunnableTasks = async () => {
+    calls.push("dispatch");
+  };
+
+  const refreshed = await agent.refreshEventJsonOnce({ listener }, createLogger());
+
+  assert.equal(refreshed, listener);
+  assert.deepStrictEqual(calls, ["bootstrap"]);
+});
+
 test("ready to merge is notify-only and does not create a task", async () => {
   const listener = createListener();
   await listener._scanSnapshot(makeSnapshot({

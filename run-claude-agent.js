@@ -2283,6 +2283,19 @@ class EventListener {
   }
 }
 
+async function refreshEventJsonOnce(options = {}, actionLogger = { writeLine() {} }) {
+  const listener = options.listener || new EventListener({
+    cwd: path.resolve(options.cwd || DEFAULTS.cwd),
+    claudeCommand: options.claudeCommand || DEFAULTS.claudeCommand,
+    eventPollIntervalMs: options.eventPollIntervalMs || DEFAULTS.eventPollIntervalMs,
+    eventNotificationEnabled: options.eventNotificationEnabled === true,
+    enableTaskDispatch: false,
+  }, actionLogger);
+
+  await listener.bootstrapRefresh();
+  return listener;
+}
+
 function getNotifier() {
   try {
     return require("node-notifier");
@@ -2421,7 +2434,7 @@ async function main() {
     enableTaskDispatch: config.enableEventListener,
   }, actionLogger);
   if (config.enableEventListener || CONTRIBUTOR_LOGIN) {
-    await eventListener.bootstrapRefresh();
+    await refreshEventJsonOnce({ listener: eventListener }, actionLogger);
     actionLogger.writeLine(`[${nowStamp()}] bootstrap_done`);
   } else {
     actionLogger.writeLine(`[${nowStamp()}] bootstrap_skipped reason=missing_contributor_login`);
@@ -2662,6 +2675,7 @@ if (require.main === module) {
     normalizeCommentBaselines,
     normalizeCommentCursorSet,
     parseOwnerRepoFromRepositoryUrl,
+    refreshEventJsonOnce,
     shouldTrackOpenPrSearchItem,
   };
 }
