@@ -595,6 +595,79 @@ test("comment success advances only the matching category baseline", () => {
   assert.equal(entry.baseline.commentBaselines.user.issueCommentCursor.lastId, null);
 });
 
+test("baseline snapshots preserve CI check details", () => {
+  const failingChecks = [{ label: "ci / Unit tests", conclusion: "FAILURE" }];
+  const pendingChecks = [{ label: "ci / Integration", status: "PENDING" }];
+  const snapshot = makeSnapshot({
+    statusCheckState: "FAILED",
+    failingChecks,
+    pendingChecks,
+  });
+
+  const baseline = agent.baselineFromSnapshot(snapshot);
+
+  assert.deepStrictEqual(baseline.failingChecks, failingChecks);
+  assert.deepStrictEqual(baseline.pendingChecks, pendingChecks);
+
+  failingChecks[0].label = "mutated";
+  pendingChecks[0].label = "mutated";
+  assert.equal(baseline.failingChecks[0].label, "ci / Unit tests");
+  assert.equal(baseline.pendingChecks[0].label, "ci / Integration");
+});
+
+test("normalizeBaseline backfills missing check arrays", () => {
+  const baseline = agent.normalizeBaseline({
+    statusCheckState: "FAILED",
+    reviewDecision: "CHANGES_REQUESTED",
+  });
+
+  assert.deepStrictEqual(baseline.failingChecks, []);
+  assert.deepStrictEqual(baseline.pendingChecks, []);
+});
+
+test("CI task success updates baseline status and check details", () => {
+  const state = new agent.EventState();
+  const snapshot = makeSnapshot({
+    prKey: "demo/repo#12",
+    statusCheckState: "FAILED",
+    failingChecks: [{ label: "ci / Unit tests", conclusion: "FAILURE" }],
+    pendingChecks: [{ label: "ci / Integration", status: "PENDING" }],
+  });
+
+  state.applyTaskSuccess({
+    prKey: snapshot.prKey,
+    type: "CI_FAILURE",
+    boundary: agent.buildBoundaryFromSnapshot(snapshot),
+  }, snapshot);
+
+  const entry = state.getOrInit(snapshot.prKey);
+  assert.equal(entry.baseline.statusCheckState, "FAILED");
+  assert.deepStrictEqual(entry.baseline.failingChecks, snapshot.failingChecks);
+  assert.deepStrictEqual(entry.baseline.pendingChecks, snapshot.pendingChecks);
+});
+
+test("merge task success also updates baseline check details", () => {
+  const state = new agent.EventState();
+  const snapshot = makeSnapshot({
+    prKey: "demo/repo#13",
+    statusCheckState: "PENDING",
+    failingChecks: [],
+    pendingChecks: [{ label: "ci / Integration", status: "PENDING" }],
+    mergeStateStatus: "BEHIND",
+  });
+
+  state.applyTaskSuccess({
+    prKey: snapshot.prKey,
+    type: "NEEDS_REBASE",
+    boundary: agent.buildBoundaryFromSnapshot(snapshot),
+  }, snapshot);
+
+  const entry = state.getOrInit(snapshot.prKey);
+  assert.equal(entry.baseline.statusCheckState, "PENDING");
+  assert.deepStrictEqual(entry.baseline.failingChecks, []);
+  assert.deepStrictEqual(entry.baseline.pendingChecks, snapshot.pendingChecks);
+});
+
 test("running tasks are not auto-removed when snapshot no longer matches", async () => {
   const listener = createListener();
   const snapshot = makeSnapshot({
@@ -648,6 +721,69 @@ test("already claimed task is not spawned again", async () => {
   await listener._startTask(task);
 
   assert.equal(spawnCount, 0);
+});
+
+test("dispatch reruns when requested during an active dispatch", async () => {
+  const listener = createListener();
+  listener.config.enableTaskDispatch = true;
+
+  const firstTask = makeTask({ id: "first", prKey: "demo/repo#21" });
+  const secondTask = makeTask({ id: "second", prKey: "demo/repo#22" });
+  let pass = 0;
+  const started = [];
+
+  listener.taskManager.getRunnable = () => {
+    pass += 1;
+    return pass === 1 ? [firstTask] : [secondTask];
+  };
+  listener._startTask = async (task) => {
+    started.push(task.id);
+    if (task.id === "first") {
+      listener.activeSubagents.set("slot", { taskId: task.id });
+      await listener._dispatchRunnableTasks();
+      assert.equal(listener._dispatchRequested, true);
+      listener.activeSubagents.clear();
+    }
+  };
+
+  await listener._dispatchRunnableTasks();
+
+  assert.deepStrictEqual(started, ["first", "second"]);
+  assert.equal(listener._dispatchRequested, false);
+});
+
+test("dispatch does not exceed parallel capacity", async () => {
+  const listener = createListener();
+  listener.config.enableTaskDispatch = true;
+  listener.activeSubagents.set("one", {});
+  listener.activeSubagents.set("two", {});
+  listener.activeSubagents.set("three", {});
+  listener.taskManager.getRunnable = () => [makeTask({ id: "blocked" })];
+  listener._startTask = async () => {
+    throw new Error("should not start when at capacity");
+  };
+
+  await listener._dispatchRunnableTasks();
+
+  assert.equal(listener.activeSubagents.size, 3);
+});
+
+test("dispatch skips tasks for PRs already being processed", async () => {
+  const listener = createListener();
+  listener.config.enableTaskDispatch = true;
+  listener._processing.add("demo/repo#31");
+  const started = [];
+  listener.taskManager.getRunnable = () => [
+    makeTask({ id: "skip", prKey: "demo/repo#31" }),
+    makeTask({ id: "start", prKey: "demo/repo#32" }),
+  ];
+  listener._startTask = async (task) => {
+    started.push(task.id);
+  };
+
+  await listener._dispatchRunnableTasks();
+
+  assert.deepStrictEqual(started, ["start"]);
 });
 
 test("pending comment task is refreshed in place instead of duplicated", async () => {

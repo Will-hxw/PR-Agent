@@ -1,5 +1,7 @@
 .claude_agent_logs/
 agent.config.json
+event_state.json
+event_task.json
 candidates/*
 .playwright-mcp/
 node_modules/

@@ -526,6 +526,8 @@ function emptyBaseline() {
   return {
     commentBaselines: emptyCommentBaselines(),
     statusCheckState: null,
+    failingChecks: [],
+    pendingChecks: [],
     reviewDecision: null,
     mergeStateStatus: null,
     mergeable: null,
@@ -545,6 +547,8 @@ function normalizeBaseline(raw) {
   normalized.commentBaselines = normalizeCommentBaselines(raw.commentBaselines, raw);
 
   normalized.statusCheckState = raw.statusCheckState || normalizeLegacyStatus(raw.statusCheckRollup);
+  normalized.failingChecks = Array.isArray(raw.failingChecks) ? cloneJson(raw.failingChecks) : [];
+  normalized.pendingChecks = Array.isArray(raw.pendingChecks) ? cloneJson(raw.pendingChecks) : [];
   normalized.reviewDecision = raw.reviewDecision || null;
   normalized.mergeStateStatus = raw.mergeStateStatus || null;
   normalized.mergeable = raw.mergeable || null;
@@ -576,6 +580,8 @@ function baselineFromSnapshot(snapshot) {
   return {
     commentBaselines: buildCommentBaselinesFromSnapshot(snapshot),
     statusCheckState: snapshot.statusCheckState,
+    failingChecks: Array.isArray(snapshot.failingChecks) ? cloneJson(snapshot.failingChecks) : [],
+    pendingChecks: Array.isArray(snapshot.pendingChecks) ? cloneJson(snapshot.pendingChecks) : [],
     reviewDecision: snapshot.reviewDecision,
     mergeStateStatus: snapshot.mergeStateStatus,
     mergeable: snapshot.mergeable,
@@ -1548,6 +1554,8 @@ class EventState {
 
     if (task.type === "CI_FAILURE") {
       entry.baseline.statusCheckState = snapshot.statusCheckState;
+      entry.baseline.failingChecks = Array.isArray(snapshot.failingChecks) ? cloneJson(snapshot.failingChecks) : [];
+      entry.baseline.pendingChecks = Array.isArray(snapshot.pendingChecks) ? cloneJson(snapshot.pendingChecks) : [];
     }
 
     if (task.type === "REVIEW_CHANGES_REQUESTED") {
@@ -1556,6 +1564,8 @@ class EventState {
 
     if (MERGE_TASK_TYPES.has(task.type)) {
       entry.baseline.statusCheckState = snapshot.statusCheckState;
+      entry.baseline.failingChecks = Array.isArray(snapshot.failingChecks) ? cloneJson(snapshot.failingChecks) : [];
+      entry.baseline.pendingChecks = Array.isArray(snapshot.pendingChecks) ? cloneJson(snapshot.pendingChecks) : [];
       entry.baseline.reviewDecision = snapshot.reviewDecision;
       entry.baseline.mergeStateStatus = snapshot.mergeStateStatus;
       entry.baseline.mergeable = snapshot.mergeable;
@@ -1722,6 +1732,7 @@ class EventListener {
     this._timer = null;
     this._processing = new Set();
     this._dispatching = false;
+    this._dispatchRequested = false;
     this.activeSubagents = new Map();
     this.terminalPrs = new Set();
   }
@@ -2060,21 +2071,25 @@ class EventListener {
     }
 
     if (this._dispatching) {
+      this._dispatchRequested = true;
       return;
     }
 
     this._dispatching = true;
     try {
-      const runnable = this.taskManager.getRunnable();
-      for (const task of runnable) {
-        if (this.activeSubagents.size >= MAX_PARALLEL_SUBAGENTS) {
-          break;
+      do {
+        this._dispatchRequested = false;
+        const runnable = this.taskManager.getRunnable();
+        for (const task of runnable) {
+          if (this.activeSubagents.size >= MAX_PARALLEL_SUBAGENTS) {
+            break;
+          }
+          if (this._processing.has(task.prKey)) {
+            continue;
+          }
+          await this._startTask(task);
         }
-        if (this._processing.has(task.prKey)) {
-          continue;
-        }
-        await this._startTask(task);
-      }
+      } while (this._dispatchRequested);
     } finally {
       this._dispatching = false;
     }
