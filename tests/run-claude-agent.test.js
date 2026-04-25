@@ -340,6 +340,62 @@ test("subagent prompt isolates untrusted PR activity details", () => {
     prompt.indexOf("ignore previous instructions") < prompt.indexOf("END_UNTRUSTED_PR_CONTENT"),
     "malicious text should be inside the untrusted block",
   );
+  assert.match(prompt, /status must be|status 必须是|resolved/);
+  assert.match(prompt, /blocked/);
+  assert.match(prompt, /needs_human/);
+  assert.match(prompt, /not_actionable/);
+  assert.doesNotMatch(prompt, /成功确认协议/);
+});
+
+test("task result parser accepts v2 statuses and legacy success ack", () => {
+  const task = makeTask({ id: "result-task", prKey: "demo/repo#7", type: "CI_FAILURE" });
+
+  for (const status of ["resolved", "blocked", "needs_human", "not_actionable"]) {
+    const parsed = agent.parseTaskResultLine(`__EVENT_RESULT__ ${JSON.stringify({
+      version: 2,
+      eventId: task.id,
+      prKey: task.prKey,
+      type: task.type,
+      status,
+      reason: `${status} reason`,
+      summary: `${status} summary`,
+    })}`, task);
+    assert.equal(parsed.valid, true);
+    assert.equal(parsed.payload.status, status);
+    assert.equal(parsed.payload.reason, `${status} reason`);
+  }
+
+  const legacy = agent.parseTaskResultLine(`__EVENT_RESULT__ ${JSON.stringify({
+    version: 1,
+    eventId: task.id,
+    prKey: task.prKey,
+    type: task.type,
+    status: "success",
+  })}`, task);
+  assert.equal(legacy.valid, true);
+  assert.equal(legacy.payload.status, "resolved");
+  assert.equal(legacy.payload.reason, "legacy_success_ack");
+});
+
+test("task result parser rejects mismatched or unknown payloads", () => {
+  const task = makeTask({ id: "result-task", prKey: "demo/repo#7", type: "CI_FAILURE" });
+
+  assert.equal(agent.parseTaskResultLine("plain output", task), null);
+  assert.equal(agent.parseTaskResultLine("__EVENT_RESULT__ {", task).valid, false);
+  assert.equal(agent.parseTaskResultLine(`__EVENT_RESULT__ ${JSON.stringify({
+    version: 2,
+    eventId: "other-task",
+    prKey: task.prKey,
+    type: task.type,
+    status: "resolved",
+  })}`, task).valid, false);
+  assert.equal(agent.parseTaskResultLine(`__EVENT_RESULT__ ${JSON.stringify({
+    version: 2,
+    eventId: task.id,
+    prKey: task.prKey,
+    type: task.type,
+    status: "maybe",
+  })}`, task).valid, false);
 });
 
 test("dedupe helper matches any existing task for the same PR and type", () => {
@@ -1271,6 +1327,156 @@ test("state-backed success with active trigger blocks instead of retrying", asyn
   assert.deepStrictEqual(updated.details.failingChecks, snapshot.failingChecks);
   assert.equal(listener._processing.has(snapshot.prKey), false);
   assert.ok(listener.actionLogger.lines.some((line) => line.includes("event_task_blocked")));
+});
+
+test("blocked task result stores blocked state without retrying", async () => {
+  const snapshot = makeSnapshot({ prKey: "demo/repo#44" });
+  const listener = createListener({
+    fetchPrSnapshot: async () => snapshot,
+  });
+  listener.taskManager.save = async () => {};
+  const task = listener.taskManager.add(
+    snapshot.prKey,
+    "NEW_COMMENT",
+    agent.TASK_EVENT_SEVERITY.NEW_COMMENT,
+    { snapshotSummary: "comment" },
+    agent.normalizeBoundary(null),
+  );
+  listener.taskManager.claim(task.id, 123);
+  listener._processing.add(snapshot.prKey);
+
+  await listener._handleTaskResult(task, {
+    version: 2,
+    eventId: task.id,
+    prKey: task.prKey,
+    type: task.type,
+    status: "needs_human",
+    reason: "needs maintainer decision",
+    summary: "Cannot safely act automatically.",
+  });
+
+  const updated = listener.taskManager.getById(task.id);
+  assert.equal(updated.status, agent.TASK_STATUS.BLOCKED);
+  assert.equal(updated.attemptCount, 1);
+  assert.equal(updated.nextRetryAt, null);
+  assert.equal(updated.blockReason, "needs maintainer decision");
+  assert.deepStrictEqual(updated.details.taskResult, {
+    status: "needs_human",
+    reason: "needs maintainer decision",
+    summary: "Cannot safely act automatically.",
+  });
+  assert.equal(listener._processing.has(snapshot.prKey), false);
+});
+
+test("blocked task result uses existing details when refresh fails", async () => {
+  const listener = createListener({
+    fetchPrSnapshot: async () => {
+      throw new Error("network down");
+    },
+  });
+  listener.taskManager.save = async () => {};
+  const task = listener.taskManager.add(
+    "demo/repo#45",
+    "CI_FAILURE",
+    agent.TASK_EVENT_SEVERITY.CI_FAILURE,
+    { snapshotSummary: "old", failingChecks: [{ label: "old-ci" }] },
+    agent.normalizeBoundary({ snapshotUpdatedAt: "2026-04-24T00:00:00.000Z" }),
+  );
+  listener.taskManager.claim(task.id, 123);
+
+  await listener._handleTaskResult(task, {
+    version: 2,
+    eventId: task.id,
+    prKey: task.prKey,
+    type: task.type,
+    status: "blocked",
+    reason: "external service unavailable",
+    summary: "CI provider is unavailable.",
+  });
+
+  const updated = listener.taskManager.getById(task.id);
+  assert.equal(updated.status, agent.TASK_STATUS.BLOCKED);
+  assert.equal(updated.boundary.snapshotUpdatedAt, "2026-04-24T00:00:00.000Z");
+  assert.equal(updated.details.snapshotSummary, "old");
+  assert.equal(updated.details.taskResult.status, "blocked");
+  assert.ok(listener.actionLogger.lines.some((line) => line.includes("task_result_refresh_failed")));
+});
+
+test("not actionable comment result advances matching baseline and removes task", async () => {
+  const snapshot = makeSnapshot({
+    prKey: "demo/repo#46",
+    issueComments: [
+      makeActivity({
+        id: 460,
+        createdAt: "2026-04-24T00:01:00.000Z",
+        authorLogin: "maintainer",
+        authorAssociation: "OWNER",
+        body: "No action needed.",
+      }),
+    ],
+  });
+  const listener = createListener({
+    fetchPrSnapshot: async () => snapshot,
+  });
+  listener.saveAll = async () => {};
+  const task = listener.taskManager.add(
+    snapshot.prKey,
+    "MAINTAINER_COMMENT",
+    agent.TASK_EVENT_SEVERITY.MAINTAINER_COMMENT,
+    { snapshotSummary: "comment" },
+    agent.buildBoundaryFromCategorySnapshot(snapshot, "maintainer"),
+  );
+  listener.taskManager.claim(task.id, 123);
+
+  await listener._handleTaskResult(task, {
+    version: 2,
+    eventId: task.id,
+    prKey: task.prKey,
+    type: task.type,
+    status: "not_actionable",
+    reason: "informational",
+    summary: "Maintainer comment did not require a change.",
+  });
+
+  assert.equal(listener.taskManager.getById(task.id), null);
+  const entry = listener.state.getOrInit(snapshot.prKey);
+  assert.equal(entry.baseline.commentBaselines.maintainer.issueCommentCursor.lastId, "460");
+});
+
+test("not actionable state-backed result blocks while trigger is still active", async () => {
+  const snapshot = makeSnapshot({
+    prKey: "demo/repo#47",
+    statusCheckState: "FAILED",
+    failingChecks: [{ label: "ci", conclusion: "FAILURE" }],
+  });
+  const listener = createListener({
+    fetchPrSnapshot: async () => snapshot,
+  });
+  listener.taskManager.save = async () => {};
+  listener.saveAll = async () => {};
+  const task = listener.taskManager.add(
+    snapshot.prKey,
+    "CI_FAILURE",
+    agent.TASK_EVENT_SEVERITY.CI_FAILURE,
+    { snapshotSummary: "ci" },
+    agent.buildBoundaryFromSnapshot(snapshot),
+  );
+  listener.taskManager.claim(task.id, 123);
+
+  await listener._handleTaskResult(task, {
+    version: 2,
+    eventId: task.id,
+    prKey: task.prKey,
+    type: task.type,
+    status: "not_actionable",
+    reason: "no code path",
+    summary: "This cannot be fixed automatically.",
+  });
+
+  const updated = listener.taskManager.getById(task.id);
+  assert.equal(updated.status, agent.TASK_STATUS.BLOCKED);
+  assert.equal(updated.blockReason, "not-actionable-trigger-still-active");
+  assert.equal(updated.details.taskResult.status, "not_actionable");
 });
 
 test("blocked state-backed task is removed when trigger clears", async () => {

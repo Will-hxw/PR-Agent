@@ -197,10 +197,10 @@ node run-claude-agent.js \
 
 - 启动时和每次轮询必须调用同一个 `generateEventJson()` 入口生成 `event_state.json` / `event_task.json`；subagent 派发只能发生在该入口完成并保存之后。
 - 只要 `event_task.json` 中仍存在同 `prKey + type` 的 task，就视为去重命中，不会重复建 task。
-- task 成功后直接从 `event_task.json` 删除，不保留 handled 历史项；subagent 完成时由成功确认协议触发 launcher 自动删除，主 Agent 亲自处理并确认完成时可以直接删除对应 task 条目。
+- task 成功后直接从 `event_task.json` 删除，不保留 handled 历史项；subagent 完成时输出结构化 `task result`，由 launcher 自动删除、block 或 retry；主 Agent 亲自处理并确认完成时可以直接删除对应 task 条目。
 - 主 Agent 手工删除 task 前，必须先按 `doc/event-task-state-maintenance.md` 更新 `event_state.json` 的 handled baseline。
 - task 失败最多自动尝试 5 次；超过上限后变成 `dead`。`dead` 只在底层触发条件仍然存在时继续阻塞同类事件；如果触发条件消失，会在后续扫描中自动回收。
-- `CI_FAILURE`、`REVIEW_CHANGES_REQUESTED`、`NEEDS_REBASE` 这类状态型 task 只有在 GitHub 最新状态里的触发条件消失后才允许清除；如果 subagent 报告成功但触发条件仍存在，应保留 task 并进入重试/`dead` 流程。
+- `CI_FAILURE`、`REVIEW_CHANGES_REQUESTED`、`NEEDS_REBASE` 这类状态型 task 只有在 GitHub 最新状态里的触发条件消失后才允许清除；如果 subagent 报告 `resolved` 但触发条件仍存在，应进入 `blocked`，如果报告 `blocked` / `needs_human`，launcher 直接保留为 `blocked`。
 - 成功后的状态刷新以 GitHub 最新数据为准；评论类 cursor 只推进到 task 创建时的 boundary，然后立即对该 PR 局部重扫，避免吞掉处理中途到达的新评论。
 - 评论 backlog 按 `MAINTAINER_COMMENT`、`BOT_COMMENT`、`NEW_COMMENT` 三类独立跟踪，同一轮扫描里最多可并存三条评论 task。
 - 配置的 contributor login 自己发布的评论和 review 不生成 `NEW_COMMENT`，避免 agent 回复后再把自己的回复派发成新任务。
@@ -232,7 +232,7 @@ node run-claude-agent.js \
 
 只保留活跃或失败未清理的 task。关键字段：
 
-- `status`: `pending | running | dead`
+- `status`: `pending | running | blocked | dead`
 - `attemptCount`
 - `lastAttemptAt`
 - `nextRetryAt`

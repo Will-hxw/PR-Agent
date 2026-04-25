@@ -12,7 +12,7 @@
 
 ## 优先路径
 
-subagent 派发的任务不要手工编辑两个 JSON 文件。subagent 完成工作后输出成功 ack，launcher 会刷新 GitHub 状态、推进对应 state baseline，并删除 task。
+subagent 派发的任务不要手工编辑两个 JSON 文件。subagent 完成工作后输出结构化 `task result`，launcher 会刷新 GitHub 状态，并按结果推进 state baseline、删除 task、block task 或进入 retry。
 
 只有主 Agent 亲自处理并确认某个 task 已完成时，才需要手工维护 JSON。
 

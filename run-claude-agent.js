@@ -42,6 +42,7 @@ const TASK_STATUS = {
   BLOCKED: "blocked",
   DEAD: "dead",
 };
+const TASK_RESULT_STATUSES = new Set(["resolved", "blocked", "needs_human", "not_actionable"]);
 const TERMINAL_TASK_STATUSES = new Set(["success", "succeeded", "completed", "handled", "done"]);
 const TASK_EVENT_SEVERITY = {
   CI_FAILURE: "HEAVY",
@@ -905,13 +906,15 @@ function parsePrKey(prKey) {
   };
 }
 
-function buildAckRecord(task) {
+function buildTaskResultRecord(task, status = "resolved", reason = "", summary = "") {
   return {
-    version: 1,
+    version: 2,
     eventId: task.id,
     prKey: task.prKey,
     type: task.type,
-    status: "success",
+    status,
+    reason,
+    summary,
   };
 }
 
@@ -925,7 +928,7 @@ function formatUntrustedTaskDetails(details) {
 
 function buildSubagentPrompt(task) {
   const { owner, repo, prNumber } = parsePrKey(task.prKey);
-  const ackLine = `${TASK_RESULT_PREFIX}${JSON.stringify(buildAckRecord(task))}`;
+  const resultLine = `${TASK_RESULT_PREFIX}${JSON.stringify(buildTaskResultRecord(task, "resolved", "handled", "Brief outcome summary"))}`;
   return [
     `请处理 PR 事件：${task.prKey}`,
     `事件类型：${task.type}`,
@@ -944,13 +947,18 @@ function buildSubagentPrompt(task) {
     `4. 如需回复 inline review comment，必须回复原线程，例如：gh api repos/${owner}/${repo}/pulls/${prNumber}/comments/<comment_id>/replies -X POST -f body='<reply>'`,
     "5. 如需更新记录，只更新与该 PR 直接相关的 records 内容。",
     "6. 任务/状态文件维护规则见 doc/event-task-state-maintenance.md。",
-    "7. 这是 subagent 任务，不要手动编辑 event_state.json 或 event_task.json；完成后按成功确认协议输出 ack，由 launcher 推进 state 并删除对应 task。",
+    "7. 这是 subagent 任务，不要手动编辑 event_state.json 或 event_task.json；完成后按 task result 协议输出结构化结果，由 launcher 推进 state、删除、block 或 retry 对应 task。",
     "",
-    "成功确认协议：",
-    "只有在你确认该事件已经处理完成时，最后单独输出下面这一行，不要放进代码块，不要改写字段：",
-    ackLine,
+    "task result 协议：",
+    "最后单独输出一行，不要放进代码块。status 必须是 resolved、blocked、needs_human、not_actionable 之一。",
+    "- resolved：你已完成必要处理，launcher 会再次确认底层触发条件是否消失。",
+    "- blocked：当前触发条件仍存在，但自动 agent 不应继续普通重试。",
+    "- needs_human：需要 contributor、maintainer 或人工决策。",
+    "- not_actionable：确认该事件不需要行动；状态型 task 仍必须由 launcher 验证触发条件已消失。",
+    "输出格式示例，保持 version/eventId/prKey/type 字段不变，只改 status/reason/summary：",
+    resultLine,
     "",
-    "如果没有完成处理，不要输出这一行。",
+    "如果没有形成明确结论，不要输出 task result。",
   ].join("\n");
 }
 
@@ -1138,13 +1146,49 @@ function summarizeCheckLabels(checks) {
   return checks.map(checkLabelForSummary).join(",");
 }
 
-function extractAckFromTextBuffer(bufferHolder, task) {
+function buildTaskResultDetail(result) {
+  return {
+    status: result.status,
+    reason: result.reason || "",
+    summary: result.summary || "",
+  };
+}
+
+function buildBlockedTaskDetailsFromResult(task, result, snapshot = null) {
+  const details = cloneJson(task.details || {});
+  if (snapshot) {
+    Object.assign(details, {
+      snapshotSummary: buildSnapshotSummary(snapshot),
+      snapshotUpdatedAt: snapshot.updatedAt || null,
+      headSha: snapshot.headSha || null,
+    });
+    if (STATE_BACKED_TASK_TYPES.has(task.type)) {
+      Object.assign(details, buildStateBackedTaskDetails(task.type, snapshot));
+    }
+  }
+  details.taskResult = buildTaskResultDetail(result);
+  return details;
+}
+
+function normalizeTaskResultPayload(payload) {
+  return {
+    version: 2,
+    eventId: payload.eventId,
+    prKey: payload.prKey,
+    type: payload.type,
+    status: payload.status,
+    reason: truncate(payload.reason || "", 200),
+    summary: truncate(payload.summary || "", 400),
+  };
+}
+
+function extractTaskResultFromTextBuffer(bufferHolder, task) {
   let parsed = null;
   let newlineIndex = bufferHolder.buffer.indexOf("\n");
   while (newlineIndex >= 0) {
     const line = bufferHolder.buffer.slice(0, newlineIndex).replace(/\r$/, "");
     bufferHolder.buffer = bufferHolder.buffer.slice(newlineIndex + 1);
-    const maybe = parseAckLine(line, task);
+    const maybe = parseTaskResultLine(line, task);
     if (maybe) {
       parsed = maybe;
     }
@@ -1153,7 +1197,7 @@ function extractAckFromTextBuffer(bufferHolder, task) {
   return parsed;
 }
 
-function parseAckLine(line, task) {
+function parseTaskResultLine(line, task) {
   const trimmed = line.trim();
   if (!trimmed.startsWith(TASK_RESULT_PREFIX)) {
     return null;
@@ -1163,20 +1207,41 @@ function parseAckLine(line, task) {
   try {
     payload = JSON.parse(rawJson);
   } catch {
-    return { valid: false, reason: "ack_json_parse_failed" };
+    return { valid: false, reason: "task_result_json_parse_failed" };
   }
-  const expected = buildAckRecord(task);
+  const expected = buildTaskResultRecord(task);
+  if (
+    payload
+    && payload.version === 1
+    && payload.eventId === task.id
+    && payload.prKey === task.prKey
+    && payload.type === task.type
+    && payload.status === "success"
+  ) {
+    return {
+      valid: true,
+      payload: normalizeTaskResultPayload({
+        version: 2,
+        eventId: task.id,
+        prKey: task.prKey,
+        type: task.type,
+        status: "resolved",
+        reason: "legacy_success_ack",
+        summary: "",
+      }),
+    };
+  }
   if (
     payload
     && payload.version === expected.version
     && payload.eventId === expected.eventId
     && payload.prKey === expected.prKey
     && payload.type === expected.type
-    && payload.status === expected.status
+    && TASK_RESULT_STATUSES.has(payload.status)
   ) {
-    return { valid: true, payload };
+    return { valid: true, payload: normalizeTaskResultPayload(payload) };
   }
-  return { valid: false, reason: "ack_payload_mismatch", payload };
+  return { valid: false, reason: "task_result_payload_mismatch", payload };
 }
 
 function appendQuery(base, params) {
@@ -2297,7 +2362,11 @@ class EventListener {
         candidateTasks.delete(type);
         continue;
       }
+      const previousTaskResult = primary.status === TASK_STATUS.BLOCKED ? primary.details?.taskResult : null;
       primary.details = cloneJson(candidate.details);
+      if (previousTaskResult) {
+        primary.details.taskResult = cloneJson(previousTaskResult);
+      }
       primary.boundary = normalizeBoundary(candidate.boundary);
       this.actionLogger.writeLine(
         `[${nowStamp()}] event_reconciled_refreshed pr=${snapshot.prKey} type=${primary.type} task=${primary.id} status=${primary.status}`,
@@ -2500,9 +2569,9 @@ class EventListener {
     this.actionLogger.writeLine(`[${nowStamp()}] subagent_spawn pr=${task.prKey} task=${task.id} pid=${child.pid || "unknown"}`);
 
     let stdoutBuffer = "";
-    const ackTextBuffer = { buffer: "" };
-    let ackRecord = null;
-    let invalidAckReason = null;
+    const resultTextBuffer = { buffer: "" };
+    let taskResult = null;
+    let invalidTaskResultReason = null;
     let spawnError = null;
     let attemptTimedOut = false;
     let killRequested = false;
@@ -2524,13 +2593,13 @@ class EventListener {
       }
       for (const item of event.message.content) {
         if (item.type === "text" && item.text) {
-          ackTextBuffer.buffer += item.text;
-          const parsed = extractAckFromTextBuffer(ackTextBuffer, task);
+          resultTextBuffer.buffer += item.text;
+          const parsed = extractTaskResultFromTextBuffer(resultTextBuffer, task);
           if (parsed) {
             if (parsed.valid) {
-              ackRecord = parsed.payload;
+              taskResult = parsed.payload;
             } else {
-              invalidAckReason = parsed.reason;
+              invalidTaskResultReason = parsed.reason;
             }
           }
         }
@@ -2582,13 +2651,13 @@ class EventListener {
       if (stdoutBuffer.trim()) {
         handleStdoutLine(stdoutBuffer.trim());
       }
-      if (ackTextBuffer.buffer.trim()) {
-        const parsed = parseAckLine(ackTextBuffer.buffer.trim(), task);
+      if (resultTextBuffer.buffer.trim()) {
+        const parsed = parseTaskResultLine(resultTextBuffer.buffer.trim(), task);
         if (parsed) {
           if (parsed.valid) {
-            ackRecord = parsed.payload;
+            taskResult = parsed.payload;
           } else {
-            invalidAckReason = parsed.reason;
+            invalidTaskResultReason = parsed.reason;
           }
         }
       }
@@ -2612,20 +2681,20 @@ class EventListener {
       const success = !attemptTimedOut
         && !killRequested
         && code === 0
-        && ackRecord
-        && !invalidAckReason;
+        && taskResult
+        && !invalidTaskResultReason;
 
       if (success) {
-        await this._handleTaskSuccess(task);
+        await this._handleTaskResult(task, taskResult);
       } else {
         const reason = spawnError
           ? `spawn_error: ${spawnError.message}`
           : attemptTimedOut
             ? "subagent_timeout"
-            : invalidAckReason
-              ? invalidAckReason
-              : !ackRecord
-                ? "missing_success_ack"
+            : invalidTaskResultReason
+              ? invalidTaskResultReason
+              : !taskResult
+                ? "missing_task_result"
                 : `subagent_exit_${code ?? "null"}_${signal || "nosignal"}`;
         await this._handleTaskFailure(task, reason);
       }
@@ -2652,6 +2721,22 @@ class EventListener {
     }
   }
 
+  async _handleTaskResult(task, result) {
+    if (result.status === "resolved") {
+      await this._handleTaskSuccess(task);
+      return;
+    }
+    if (result.status === "blocked" || result.status === "needs_human") {
+      await this._handleTaskBlockedResult(task, result);
+      return;
+    }
+    if (result.status === "not_actionable") {
+      await this._handleTaskNotActionable(task, result);
+      return;
+    }
+    await this._handleTaskFailure(task, `invalid_task_result_status: ${result.status || "missing"}`);
+  }
+
   async _handleTaskSuccess(task) {
     let refreshedSnapshot;
     try {
@@ -2674,6 +2759,35 @@ class EventListener {
       return;
     }
 
+    await this._completeTaskSuccess(task, refreshedSnapshot);
+  }
+
+  async _handleTaskNotActionable(task, result) {
+    let refreshedSnapshot;
+    try {
+      refreshedSnapshot = await this.fetchPrSnapshot(task.prKey, {
+        timeoutMs: GH_TIMEOUT_MS,
+      });
+    } catch (error) {
+      await this._handleTaskFailure(task, `task_result_refresh_failed: ${error.message}`);
+      return;
+    }
+
+    if (STATE_BACKED_TASK_TYPES.has(task.type) && isTaskTriggerActive(task.type, refreshedSnapshot)) {
+      await this._handleTaskBlocked(task, "not-actionable-trigger-still-active", refreshedSnapshot, result);
+      try {
+        await this._scanSnapshot(refreshedSnapshot);
+        await this.saveAll();
+      } catch (error) {
+        this.actionLogger.writeLine(`[${nowStamp()}] post_not_actionable_rescan_failed pr=${task.prKey} task=${task.id} err=${truncate(error.message || error, 300)}`);
+      }
+      return;
+    }
+
+    await this._completeTaskSuccess(task, refreshedSnapshot);
+  }
+
+  async _completeTaskSuccess(task, refreshedSnapshot) {
     this.state.applyTaskSuccess(task, refreshedSnapshot);
     this.taskManager.remove(task.id);
     this._processing.delete(task.prKey);
@@ -2688,11 +2802,42 @@ class EventListener {
     }
   }
 
-  async _handleTaskBlocked(task, blockReason, snapshot) {
+  async _handleTaskBlockedResult(task, result) {
+    let refreshedSnapshot = null;
+    try {
+      refreshedSnapshot = await this.fetchPrSnapshot(task.prKey, {
+        timeoutMs: GH_TIMEOUT_MS,
+      });
+    } catch (error) {
+      this.actionLogger.writeLine(
+        `[${nowStamp()}] task_result_refresh_failed pr=${task.prKey} task=${task.id} status=${result.status} err=${truncate(error.message || error, 300)}`,
+      );
+    }
+
+    const blockReason = result.reason || result.status;
     const updated = this.taskManager.block(
       task.id,
       blockReason,
-      buildStateBackedTaskDetails(task.type, snapshot),
+      buildBlockedTaskDetailsFromResult(task, result, refreshedSnapshot),
+      refreshedSnapshot ? buildBoundaryFromSnapshot(refreshedSnapshot) : task.boundary,
+    );
+    if (!updated) {
+      return;
+    }
+    this._processing.delete(task.prKey);
+    this.actionLogger.writeLine(
+      `[${nowStamp()}] event_task_blocked pr=${task.prKey} task=${task.id} type=${task.type} blockReason=${blockReason} resultStatus=${result.status}`,
+    );
+    await this.taskManager.save();
+  }
+
+  async _handleTaskBlocked(task, blockReason, snapshot, result = null) {
+    const updated = this.taskManager.block(
+      task.id,
+      blockReason,
+      result
+        ? buildBlockedTaskDetailsFromResult(task, result, snapshot)
+        : buildStateBackedTaskDetails(task.type, snapshot),
       buildBoundaryFromSnapshot(snapshot),
     );
     if (!updated) {
@@ -3092,6 +3237,7 @@ if (require.main === module) {
     buildCursor,
     buildGhGraphQLArgs,
     buildSubagentPrompt,
+    buildTaskResultRecord,
     classifyBlockedTaskReason,
     classifyActivityCategory,
     classifyStatusChecks,
@@ -3114,6 +3260,7 @@ if (require.main === module) {
     normalizeTaskRecord,
     normalizeCommentBaselines,
     normalizeCommentCursorSet,
+    parseTaskResultLine,
     parseRetryTimestampMs,
     parseOwnerRepoFromRepositoryUrl,
     refreshEventJsonOnce,

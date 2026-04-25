@@ -366,9 +366,9 @@ PR 提交后，工作没有结束。
 - 启动时和每次轮询必须调用同一个 `generateEventJson()` 入口生成 `event_state.json` / `event_task.json`；subagent 派发只能发生在该入口完成并保存之后。
 - `CI_PASSED`、`REVIEW_APPROVED`、`READY_TO_MERGE` 只通知，不写 task。
 - 去重语义是“同 `prKey + type` 的 task 仍存在时不重复建 task”，不是全局唯一。
-- task 成功后会直接从 `event_task.json` 删除：subagent 完成时由成功确认协议触发 launcher 自动删除；主代理亲自处理并确认完成时，可以直接删除对应 task 条目；失败会重试，达到上限后进入 `dead`。
+- task 成功后会直接从 `event_task.json` 删除：subagent 完成时输出结构化 `task result`，由 launcher 自动删除、block 或 retry；主代理亲自处理并确认完成时，可以直接删除对应 task 条目；失败会重试，达到上限后进入 `dead`。
 - 主代理手工删除 task 前，必须先按 `doc/event-task-state-maintenance.md` 更新 `event_state.json` 的 handled baseline；只删除 `event_task.json` 不代表事件已处理，下一次扫描可能重新生成同类 task。
-- `CI_FAILURE`、`REVIEW_CHANGES_REQUESTED`、`NEEDS_REBASE` 这类状态型 task 只有在 GitHub 最新状态里的触发条件消失后才允许清除；如果 subagent 报告成功但触发条件仍存在，应保留 task 并进入重试/`dead` 流程。
+- `CI_FAILURE`、`REVIEW_CHANGES_REQUESTED`、`NEEDS_REBASE` 这类状态型 task 只有在 GitHub 最新状态里的触发条件消失后才允许清除；如果 subagent 报告 `resolved` 但触发条件仍存在，应进入 `blocked`；如果报告 `blocked` / `needs_human`，launcher 直接保留为 `blocked`。
 - `pending` / `dead` task 只在底层触发条件仍然成立时继续保留；如果触发条件消失，会在后续扫描中自动回收，不再阻塞 dedupe。
 - 评论 backlog 按 `MAINTAINER_COMMENT`、`BOT_COMMENT`、`NEW_COMMENT` 三类独立跟踪，同一轮扫描里可以并存，不再折叠成单条评论 task。
 - 配置的 contributor login 自己发布的评论和 review 不生成 `NEW_COMMENT`，避免 agent 回复后再把自己的回复派发成新任务。
@@ -386,6 +386,7 @@ PR 提交后，工作没有结束。
 
 - `pending`：等待派发。
 - `running`：当前 launcher 已 claim 并启动 subagent。
+- `blocked`：subagent 或 launcher 判断当前任务不应继续普通重试，需要人工、外部条件或维护者决策。
 - `dead`：达到自动重试上限；仅当底层触发条件仍然存在时继续阻塞同 `prKey + type` 的去重，触发条件消失后会被自动回收。
 
 如果 `dead` task 阻塞了后续同类事件，人工处理方式只有两种：
