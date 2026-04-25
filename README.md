@@ -287,9 +287,16 @@ node run-claude-agent.js \
 
 ```powershell
 $login = if ($env:PR_AGENT_CONTRIBUTOR_LOGIN) { $env:PR_AGENT_CONTRIBUTOR_LOGIN } else { (Get-Content agent.config.json | ConvertFrom-Json).contributorLogin }
-(gh search prs --author $login --state open --limit 100 --json repository,number,url | ConvertFrom-Json) |
-  Where-Object { $_.repository.nameWithOwner -notlike "$login/*" } |
-  Select-Object number,url,@{Name='repository';Expression={$_.repository.nameWithOwner}}
+$items = @()
+for ($page = 1; $page -le 10; $page++) {
+  $result = gh api --method GET search/issues -f q="author:$login is:pr state:open" -F per_page=100 -F page=$page -f sort=updated | ConvertFrom-Json
+  $pageItems = @($result.items)
+  $items += $pageItems
+  if ($pageItems.Count -lt 100) { break }
+}
+$items |
+  Where-Object { ($_.repository_url -replace '^https://api.github.com/repos/', '') -notlike "$login/*" } |
+  Select-Object number,html_url,@{Name='repository';Expression={$_.repository_url -replace '^https://api.github.com/repos/', ''}}
 ```
 
 查看单个 PR 状态：

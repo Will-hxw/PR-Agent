@@ -395,7 +395,8 @@ function createLogger(logFilePath) {
 
 async function writeJsonFileAtomic(filePath, value) {
   await fsPromises.mkdir(path.dirname(filePath), { recursive: true });
-  const tmpPath = `${filePath}.${process.pid}.${Date.now()}.tmp`;
+  const tmpName = `${path.basename(filePath)}.${process.pid}.${Date.now()}.${randomUUID()}.tmp`;
+  const tmpPath = path.join(path.dirname(filePath), tmpName);
   try {
     await fsPromises.writeFile(tmpPath, `${JSON.stringify(value, null, 2)}\n`, "utf8");
     await fsPromises.rename(tmpPath, filePath);
@@ -683,6 +684,15 @@ function nextRetryAtForAttempt(attemptCount) {
   return new Date(Date.now() + computeBackoffMs(attemptCount)).toISOString();
 }
 
+function compareStableId(left, right) {
+  const leftText = left == null ? "" : String(left);
+  const rightText = right == null ? "" : String(right);
+  if (leftText === rightText) {
+    return 0;
+  }
+  return leftText < rightText ? -1 : 1;
+}
+
 function compareTasksForDispatch(left, right) {
   const severityDelta = (SEVERITY_ORDER[left.severity] ?? 99) - (SEVERITY_ORDER[right.severity] ?? 99);
   if (severityDelta !== 0) {
@@ -692,7 +702,7 @@ function compareTasksForDispatch(left, right) {
   if (createdDelta !== 0) {
     return createdDelta;
   }
-  return left.id.localeCompare(right.id);
+  return compareStableId(left.id, right.id);
 }
 
 function normalizeEventDetailValue(value) {
@@ -748,7 +758,7 @@ function compareActivityChronologically(left, right) {
   if (createdDelta !== 0) {
     return createdDelta;
   }
-  return String(left.id).localeCompare(String(right.id));
+  return compareStableId(left.id, right.id);
 }
 
 function trimMultiline(text) {
@@ -857,7 +867,7 @@ function compareActivityToCursor(activity, cursor) {
   }
   const activityId = activity && activity.id != null ? String(activity.id) : "";
   const cursorId = cursor && cursor.lastId != null ? String(cursor.lastId) : "";
-  return activityId.localeCompare(cursorId);
+  return compareStableId(activityId, cursorId);
 }
 
 function collectItemsAfterCursor(items, rawCursor) {
@@ -1286,8 +1296,10 @@ function classifyStatusChecks(statusCheckRollup) {
       pendingChecks.push({ label, status, conclusion });
       continue;
     }
-    if (FAILURE_CONCLUSIONS.has(conclusion) || (conclusion && !SUCCESSISH_CONCLUSIONS.has(conclusion))) {
+    if (FAILURE_CONCLUSIONS.has(conclusion)) {
       failingChecks.push({ label, status, conclusion });
+    } else if (conclusion && !SUCCESSISH_CONCLUSIONS.has(conclusion)) {
+      pendingChecks.push({ label, status: "UNKNOWN", conclusion });
     }
   }
 
@@ -1395,6 +1407,7 @@ async function fetchPrSnapshot(prKey, options = {}) {
   const reviewComments = reviewCommentsRaw.map(normalizeReviewComment).sort(compareActivityChronologically);
   const reviews = reviewsRaw
     .map(normalizeReview)
+    // Pending reviews are draft review sessions, not submitted review activity.
     .filter((review) => review.state && review.state !== "PENDING")
     .sort(compareActivityChronologically);
   const checkSummary = classifyStatusChecks(prView.statusCheckRollup || []);
@@ -2658,6 +2671,7 @@ if (require.main === module) {
     buildCursor,
     classifyActivityCategory,
     classifyStatusChecks,
+    compareStableId,
     collectNewActivities,
     commentCategoryForTaskType,
     compareActivityChronologically,
@@ -2677,5 +2691,6 @@ if (require.main === module) {
     parseOwnerRepoFromRepositoryUrl,
     refreshEventJsonOnce,
     shouldTrackOpenPrSearchItem,
+    writeJsonFileAtomic,
   };
 }

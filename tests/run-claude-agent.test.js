@@ -1,5 +1,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
+const fs = require("node:fs/promises");
+const os = require("node:os");
 const path = require("node:path");
 
 process.env.PR_AGENT_CONTRIBUTOR_LOGIN = "example-user";
@@ -181,6 +183,99 @@ test("status rollup uses the latest run for each check label", () => {
   assert.equal(result.state, "SUCCESS");
   assert.equal(result.checkCount, 2);
   assert.deepStrictEqual(result.failingChecks, []);
+});
+
+test("status rollup keeps unknown completed conclusions out of failing checks", () => {
+  const result = agent.classifyStatusChecks([
+    {
+      workflowName: "third-party",
+      name: "New conclusion",
+      status: "COMPLETED",
+      conclusion: "STALE_UNKNOWN",
+      completedAt: "2026-04-24T14:28:39Z",
+    },
+  ]);
+
+  assert.equal(result.state, "PENDING");
+  assert.deepStrictEqual(result.failingChecks, []);
+  assert.deepStrictEqual(result.pendingChecks, [
+    {
+      label: "third-party / New conclusion",
+      status: "UNKNOWN",
+      conclusion: "STALE_UNKNOWN",
+    },
+  ]);
+});
+
+test("status rollup still treats known failure conclusions as failed", () => {
+  const result = agent.classifyStatusChecks([
+    {
+      workflowName: "ci",
+      name: "Unit tests",
+      status: "COMPLETED",
+      conclusion: "FAILURE",
+      completedAt: "2026-04-24T14:28:39Z",
+    },
+  ]);
+
+  assert.equal(result.state, "FAILED");
+  assert.deepStrictEqual(result.failingChecks, [
+    {
+      label: "ci / Unit tests",
+      status: "COMPLETED",
+      conclusion: "FAILURE",
+    },
+  ]);
+});
+
+test("stable id ordering is deterministic for mixed id strings", () => {
+  const createdAt = "2026-04-24T00:01:00.000Z";
+  const sorted = [
+    makeActivity({ id: "a", createdAt }),
+    makeActivity({ id: "2", createdAt }),
+    makeActivity({ id: "B", createdAt }),
+    makeActivity({ id: "10", createdAt }),
+  ].sort(agent.compareActivityChronologically);
+
+  assert.deepStrictEqual(sorted.map((activity) => activity.id), ["10", "2", "B", "a"]);
+  assert.equal(agent.compareStableId("B", "a"), -1);
+});
+
+test("task dispatch uses stable id ordering for ties", () => {
+  const manager = new agent.EventTaskManager();
+  const createdAt = "2026-04-24T00:01:00.000Z";
+  manager.events = ["a", "2", "B", "10"].map((id) => ({
+    id,
+    prKey: `demo/repo#${id}`,
+    type: "NEW_COMMENT",
+    severity: agent.TASK_EVENT_SEVERITY.NEW_COMMENT,
+    createdAt,
+    status: agent.TASK_STATUS.PENDING,
+    attemptCount: 0,
+    lastAttemptAt: null,
+    nextRetryAt: "2026-04-24T00:00:00.000Z",
+    lastError: null,
+    claimedAt: null,
+    runningPid: null,
+    boundary: agent.normalizeBoundary(null),
+    details: {},
+  }));
+
+  assert.deepStrictEqual(manager.getRunnable(Date.parse(createdAt)).map((event) => event.id), ["10", "2", "B", "a"]);
+});
+
+test("atomic json writes target file and leaves no temp file behind", async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "pr-agent-atomic-"));
+  const filePath = path.join(dir, "event_state.json");
+
+  try {
+    await agent.writeJsonFileAtomic(filePath, { ok: true });
+
+    assert.deepStrictEqual(JSON.parse(await fs.readFile(filePath, "utf8")), { ok: true });
+    assert.deepStrictEqual(await fs.readdir(dir), ["event_state.json"]);
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
 });
 
 test("startup and polling use the same JSON generation path", async () => {
