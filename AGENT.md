@@ -389,10 +389,12 @@ PR 提交后，工作没有结束。
 - `blocked`：subagent 或 launcher 判断当前任务不应继续普通重试，需要人工、外部条件或维护者决策。
 - `dead`：达到自动重试上限；仅当底层触发条件仍然存在时继续阻塞同 `prKey + type` 的去重，触发条件消失后会被自动回收。
 
+`running` task 会记录 `claimedAt`、`runningPid` 和 `lastOutputAt`；重启恢复时优先按最后输出时间判断是否超时。
+
 如果 `dead` task 阻塞了后续同类事件，人工处理方式只有两种：
 
 - 直接删除该 task 条目，彻底解除阻塞。
-- 手动改回 `pending`，并同时重置 `attemptCount`、`lastAttemptAt`、`nextRetryAt`、`lastError`、`claimedAt`、`runningPid`。
+- 手动改回 `pending`，并同时重置 `attemptCount`、`lastAttemptAt`、`nextRetryAt`、`lastError`、`claimedAt`、`runningPid`、`lastOutputAt`。
 
 `event_state.json` 中评论 baseline 采用 category-scoped 结构：
 

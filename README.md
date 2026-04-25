@@ -239,6 +239,7 @@ node run-claude-agent.js \
 - `lastError`
 - `claimedAt`
 - `runningPid`
+- `lastOutputAt`
 - `boundary`
 
 `dead` task 不是永久历史项：只有在底层触发条件仍然存在时才继续阻塞 dedupe；如果触发条件消失，会在后续扫描中自动回收。
@@ -253,6 +254,7 @@ node run-claude-agent.js \
   - `lastError: null`
   - `claimedAt: null`
   - `runningPid: null`
+  - `lastOutputAt: null`
 
 ### `event_state.json`
 评论 baseline 按 `maintainer` / `bot` / `user` 三个 category 独立跟踪；评论 task 成功时只推进对应 category 的 cursor。

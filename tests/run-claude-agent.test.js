@@ -1,5 +1,6 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
+const { EventEmitter } = require("node:events");
 const fs = require("node:fs/promises");
 const os = require("node:os");
 const path = require("node:path");
@@ -101,6 +102,7 @@ function makeTask(overrides = {}) {
     lastError: overrides.lastError || null,
     claimedAt: overrides.claimedAt || null,
     runningPid: overrides.runningPid || null,
+    lastOutputAt: overrides.lastOutputAt || null,
     blockedAt: overrides.blockedAt || null,
     blockReason: overrides.blockReason || null,
     boundary: overrides.boundary || agent.normalizeBoundary(null),
@@ -450,34 +452,57 @@ test("normalizeTaskRecord preserves running task ownership", () => {
     status: agent.TASK_STATUS.RUNNING,
     claimedAt: "2026-04-24T00:01:00.000Z",
     runningPid: 12345,
+    lastOutputAt: "2026-04-24T00:02:00.000Z",
     nextRetryAt: null,
   }));
 
   assert.equal(normalized.status, agent.TASK_STATUS.RUNNING);
   assert.equal(normalized.claimedAt, "2026-04-24T00:01:00.000Z");
   assert.equal(normalized.runningPid, 12345);
+  assert.equal(normalized.lastOutputAt, "2026-04-24T00:02:00.000Z");
 });
 
-test("resetRunningTasks only recovers dead timed out or unowned running tasks", () => {
+test("claim and heartbeat update running task last output time", () => {
+  const manager = new agent.EventTaskManager();
+  const task = manager.add(
+    "demo/repo#99",
+    "NEW_COMMENT",
+    agent.TASK_EVENT_SEVERITY.NEW_COMMENT,
+    {},
+    agent.normalizeBoundary(null),
+  );
+
+  const claimed = manager.claim(task.id, 123);
+  assert.equal(claimed.status, agent.TASK_STATUS.RUNNING);
+  assert.equal(claimed.lastOutputAt, claimed.claimedAt);
+
+  const touched = manager.touchRunningTask(task.id, "2026-04-24T00:05:00.000Z");
+  assert.equal(touched.lastOutputAt, "2026-04-24T00:05:00.000Z");
+});
+
+test("resetRunningTasks uses heartbeat before claimed time", () => {
   const manager = new agent.EventTaskManager();
   const nowMs = Date.parse("2026-04-24T01:00:00.000Z");
   manager.events = [
     makeTask({
       id: "alive",
       status: agent.TASK_STATUS.RUNNING,
-      claimedAt: "2026-04-24T00:45:00.000Z",
+      claimedAt: "2026-04-24T00:00:00.000Z",
+      lastOutputAt: "2026-04-24T00:45:00.000Z",
       runningPid: 111,
     }),
     makeTask({
       id: "dead",
       status: agent.TASK_STATUS.RUNNING,
       claimedAt: "2026-04-24T00:45:00.000Z",
+      lastOutputAt: "2026-04-24T00:45:00.000Z",
       runningPid: 222,
     }),
     makeTask({
       id: "timeout",
       status: agent.TASK_STATUS.RUNNING,
       claimedAt: "2026-04-24T00:00:00.000Z",
+      lastOutputAt: "2026-04-24T00:10:00.000Z",
       runningPid: 111,
     }),
     makeTask({
@@ -495,6 +520,7 @@ test("resetRunningTasks only recovers dead timed out or unowned running tasks", 
   assert.equal(manager.getById("alive").runningPid, 111);
   assert.equal(manager.getById("dead").status, agent.TASK_STATUS.PENDING);
   assert.equal(manager.getById("dead").runningPid, null);
+  assert.equal(manager.getById("dead").lastOutputAt, null);
   assert.equal(manager.getById("timeout").status, agent.TASK_STATUS.PENDING);
   assert.equal(manager.getById("legacy").status, agent.TASK_STATUS.PENDING);
 });
@@ -1021,6 +1047,44 @@ test("already claimed task is not spawned again", async () => {
   assert.equal(spawnCount, 0);
 });
 
+test("subagent output updates running heartbeat", async () => {
+  const listener = createListener();
+  let saveCount = 0;
+  listener.taskManager.save = async () => {
+    saveCount += 1;
+  };
+  const child = new EventEmitter();
+  child.stdout = new EventEmitter();
+  child.stderr = new EventEmitter();
+  child.stdin = {
+    write() {},
+    end() {},
+  };
+  child.pid = 4567;
+  listener._spawnSubagent = () => child;
+
+  const task = listener.taskManager.add(
+    "demo/repo#12",
+    "NEW_COMMENT",
+    agent.TASK_EVENT_SEVERITY.NEW_COMMENT,
+    { snapshotSummary: "comment" },
+    agent.normalizeBoundary(null),
+  );
+
+  await listener._startTask(task);
+  const running = listener.taskManager.getById(task.id);
+  running.lastOutputAt = "2000-01-01T00:00:00.000Z";
+
+  child.stdout.emit("data", Buffer.from("{}\n"));
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.notEqual(listener.taskManager.getById(task.id).lastOutputAt, "2000-01-01T00:00:00.000Z");
+  assert.ok(saveCount >= 3);
+
+  child.emit("close", 1, null);
+  await new Promise((resolve) => setImmediate(resolve));
+});
+
 test("CI retry refreshes failing checks before dispatch", async () => {
   const listener = createListener({
     enableTaskDispatch: true,
@@ -1507,6 +1571,112 @@ test("blocked state-backed task is removed when trigger clears", async () => {
   }));
 
   assert.equal(listener.taskManager.events.length, 0);
+});
+
+test("state-backed failure refreshes boundary and details before retry", async () => {
+  const refreshedSnapshot = makeSnapshot({
+    prKey: "demo/repo#48",
+    updatedAt: "2026-04-24T00:10:00.000Z",
+    statusCheckState: "FAILED",
+    failingChecks: [{ label: "ci-new", conclusion: "FAILURE" }],
+  });
+  const listener = createListener({
+    fetchPrSnapshot: async () => refreshedSnapshot,
+  });
+  listener.taskManager.save = async () => {};
+  const task = listener.taskManager.add(
+    refreshedSnapshot.prKey,
+    "CI_FAILURE",
+    agent.TASK_EVENT_SEVERITY.CI_FAILURE,
+    { snapshotSummary: "old", failingChecks: [{ label: "ci-old" }] },
+    agent.normalizeBoundary({ snapshotUpdatedAt: "2026-04-24T00:00:00.000Z" }),
+  );
+  listener.taskManager.claim(task.id, 123);
+
+  await listener._handleTaskFailure(task, "subagent_exit_1");
+
+  const updated = listener.taskManager.getById(task.id);
+  assert.equal(updated.status, agent.TASK_STATUS.PENDING);
+  assert.equal(updated.boundary.snapshotUpdatedAt, "2026-04-24T00:10:00.000Z");
+  assert.equal(updated.details.failingChecks[0].label, "ci-new");
+  assert.equal(updated.lastOutputAt, null);
+  assert.match(updated.lastError, /subagent_exit_1/);
+});
+
+test("state-backed failure clears task when refreshed trigger disappears", async () => {
+  const listener = createListener({
+    fetchPrSnapshot: async () => makeSnapshot({
+      prKey: "demo/repo#49",
+      updatedAt: "2026-04-24T00:10:00.000Z",
+      statusCheckState: "SUCCESS",
+    }),
+  });
+  listener.saveAll = async () => {};
+  const task = listener.taskManager.add(
+    "demo/repo#49",
+    "CI_FAILURE",
+    agent.TASK_EVENT_SEVERITY.CI_FAILURE,
+    { snapshotSummary: "old" },
+    agent.normalizeBoundary({ snapshotUpdatedAt: "2026-04-24T00:00:00.000Z" }),
+  );
+  listener.taskManager.claim(task.id, 123);
+
+  await listener._handleTaskFailure(task, "subagent_exit_1");
+
+  assert.equal(listener.taskManager.getById(task.id), null);
+  assert.ok(listener.actionLogger.lines.some((line) => line.includes("event_failure_trigger_cleared")));
+});
+
+test("state-backed failure refresh failure keeps old boundary and retries", async () => {
+  const listener = createListener({
+    fetchPrSnapshot: async () => {
+      throw new Error("network down");
+    },
+  });
+  listener.taskManager.save = async () => {};
+  const task = listener.taskManager.add(
+    "demo/repo#50",
+    "CI_FAILURE",
+    agent.TASK_EVENT_SEVERITY.CI_FAILURE,
+    { snapshotSummary: "old" },
+    agent.normalizeBoundary({ snapshotUpdatedAt: "2026-04-24T00:00:00.000Z" }),
+  );
+  listener.taskManager.claim(task.id, 123);
+
+  await listener._handleTaskFailure(task, "subagent_exit_1");
+
+  const updated = listener.taskManager.getById(task.id);
+  assert.equal(updated.status, agent.TASK_STATUS.PENDING);
+  assert.equal(updated.boundary.snapshotUpdatedAt, "2026-04-24T00:00:00.000Z");
+  assert.ok(listener.actionLogger.lines.some((line) => line.includes("event_failure_refresh_failed")));
+});
+
+test("state-backed failure boundary regression keeps old boundary", async () => {
+  const listener = createListener({
+    fetchPrSnapshot: async () => makeSnapshot({
+      prKey: "demo/repo#51",
+      updatedAt: "2026-04-24T00:09:00.000Z",
+      statusCheckState: "FAILED",
+      failingChecks: [{ label: "ci-old-snapshot", conclusion: "FAILURE" }],
+    }),
+  });
+  listener.taskManager.save = async () => {};
+  const task = listener.taskManager.add(
+    "demo/repo#51",
+    "CI_FAILURE",
+    agent.TASK_EVENT_SEVERITY.CI_FAILURE,
+    { snapshotSummary: "newer", failingChecks: [{ label: "ci-newer" }] },
+    agent.normalizeBoundary({ snapshotUpdatedAt: "2026-04-24T00:10:00.000Z" }),
+  );
+  listener.taskManager.claim(task.id, 123);
+
+  await listener._handleTaskFailure(task, "subagent_exit_1");
+
+  const updated = listener.taskManager.getById(task.id);
+  assert.equal(updated.status, agent.TASK_STATUS.PENDING);
+  assert.equal(updated.boundary.snapshotUpdatedAt, "2026-04-24T00:10:00.000Z");
+  assert.equal(updated.details.failingChecks[0].label, "ci-newer");
+  assert.ok(listener.actionLogger.lines.some((line) => line.includes("event_failure_boundary_regressed")));
 });
 
 test("ordinary task failure still uses retry state", async () => {

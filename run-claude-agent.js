@@ -86,6 +86,7 @@ const GH_TIMEOUT_MS = 60 * 1000;
 const GH_CLEANUP_TIMEOUT_MS = 30 * 1000;
 const SUBAGENT_TIMEOUT_MS = 30 * 60 * 1000;
 const SUBAGENT_FORCE_KILL_GRACE_MS = 5 * 1000;
+const SUBAGENT_HEARTBEAT_SAVE_INTERVAL_MS = 15 * 1000;
 const MAX_PARALLEL_SUBAGENTS = 3;
 const GRAPHQL_INT_MIN = -2147483648;
 const GRAPHQL_INT_MAX = 2147483647;
@@ -344,6 +345,14 @@ function parseTimestampMs(value) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+function normalizeTaskTimestamp(value) {
+  if (typeof value !== "string" || value.trim() === "") {
+    return null;
+  }
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? new Date(parsed).toISOString() : null;
+}
+
 function parseRetryTimestampMs(event) {
   if (!Object.prototype.hasOwnProperty.call(event, "nextRetryAt")) {
     return { state: "missing", value: 0 };
@@ -474,11 +483,11 @@ function isProcessAlive(pid) {
 
 function isRunningTaskRecoverable(task, nowMs = Date.now(), isAlive = isProcessAlive) {
   const runningPid = normalizePid(task.runningPid);
-  const claimedAtMs = parseTimestampMs(task.claimedAt);
-  if (!runningPid || !task.claimedAt || !Number.isFinite(claimedAtMs)) {
+  const activityAtMs = parseTimestampMs(task.lastOutputAt) || parseTimestampMs(task.claimedAt);
+  if (!runningPid || !Number.isFinite(activityAtMs) || activityAtMs <= 0) {
     return true;
   }
-  if (nowMs - claimedAtMs >= SUBAGENT_TIMEOUT_MS) {
+  if (nowMs - activityAtMs >= SUBAGENT_TIMEOUT_MS) {
     return true;
   }
   return !isAlive(runningPid);
@@ -767,8 +776,9 @@ function normalizeTaskRecord(raw) {
     lastAttemptAt: raw.lastAttemptAt || null,
     nextRetryAt: status === TASK_STATUS.DEAD || status === TASK_STATUS.BLOCKED ? null : (raw.nextRetryAt || now),
     lastError: raw.lastError || null,
-    claimedAt: raw.claimedAt || null,
+    claimedAt: normalizeTaskTimestamp(raw.claimedAt),
     runningPid: normalizePid(raw.runningPid),
+    lastOutputAt: normalizeTaskTimestamp(raw.lastOutputAt),
     blockedAt: raw.blockedAt || null,
     blockReason: raw.blockReason || null,
     boundary: normalizeBoundary(raw.boundary),
@@ -1837,6 +1847,7 @@ class EventTaskManager {
       event.nextRetryAt = nowIso();
       event.claimedAt = null;
       event.runningPid = null;
+      event.lastOutputAt = null;
       resetCount += 1;
     }
     return resetCount;
@@ -1860,6 +1871,7 @@ class EventTaskManager {
       lastError: null,
       claimedAt: null,
       runningPid: null,
+      lastOutputAt: null,
       blockedAt: null,
       blockReason: null,
       boundary: normalizeBoundary(boundary),
@@ -1899,11 +1911,12 @@ class EventTaskManager {
     event.lastAttemptAt = nowIso();
     event.nextRetryAt = null;
     event.claimedAt = nowIso();
+    event.lastOutputAt = event.claimedAt;
     event.runningPid = pid || null;
     return event;
   }
 
-  fail(id, errorMessage) {
+  fail(id, errorMessage, options = {}) {
     const event = this.getById(id);
     if (!event) {
       return null;
@@ -1911,8 +1924,15 @@ class EventTaskManager {
     event.lastError = truncate(errorMessage || "unknown failure", 400);
     event.claimedAt = null;
     event.runningPid = null;
+    event.lastOutputAt = null;
     event.blockedAt = null;
     event.blockReason = null;
+    if (options.details && typeof options.details === "object") {
+      event.details = cloneJson(options.details);
+    }
+    if (options.boundary) {
+      event.boundary = normalizeBoundary(options.boundary);
+    }
     if (event.attemptCount >= MAX_ATTEMPTS) {
       event.status = TASK_STATUS.DEAD;
       event.nextRetryAt = null;
@@ -1933,6 +1953,16 @@ class EventTaskManager {
     event.nextRetryAt = nextRetryAtForAttempt(Math.max(1, event.attemptCount));
     event.claimedAt = null;
     event.runningPid = null;
+    event.lastOutputAt = null;
+    return event;
+  }
+
+  touchRunningTask(id, outputAt = nowIso()) {
+    const event = this.getById(id);
+    if (!event || event.status !== TASK_STATUS.RUNNING) {
+      return null;
+    }
+    event.lastOutputAt = normalizeTaskTimestamp(outputAt) || nowIso();
     return event;
   }
 
@@ -1948,6 +1978,7 @@ class EventTaskManager {
     event.nextRetryAt = null;
     event.claimedAt = null;
     event.runningPid = null;
+    event.lastOutputAt = null;
     if (details && typeof details === "object") {
       event.details = cloneJson(details);
     }
@@ -2576,6 +2607,21 @@ class EventListener {
     let attemptTimedOut = false;
     let killRequested = false;
     let closeHandled = false;
+    let lastHeartbeatSaveAt = 0;
+
+    const touchHeartbeat = async () => {
+      const heartbeatAtMs = Date.now();
+      const updated = this.taskManager.touchRunningTask(task.id, new Date(heartbeatAtMs).toISOString());
+      if (!updated || heartbeatAtMs - lastHeartbeatSaveAt < SUBAGENT_HEARTBEAT_SAVE_INTERVAL_MS) {
+        return;
+      }
+      lastHeartbeatSaveAt = heartbeatAtMs;
+      try {
+        await this.taskManager.save();
+      } catch (error) {
+        this.actionLogger.writeLine(`[${nowStamp()}] subagent_heartbeat_save_failed pr=${task.prKey} task=${task.id} err=${truncate(error.message || error, 300)}`);
+      }
+    };
 
     const handleStdoutLine = (line) => {
       if (!line.trim()) {
@@ -2607,6 +2653,7 @@ class EventListener {
     };
 
     child.stdout.on("data", (chunk) => {
+      touchHeartbeat();
       stdoutBuffer += chunk.toString("utf8");
       let newlineIndex = stdoutBuffer.indexOf("\n");
       while (newlineIndex >= 0) {
@@ -2618,6 +2665,7 @@ class EventListener {
     });
 
     child.stderr.on("data", (chunk) => {
+      touchHeartbeat();
       const text = chunk.toString("utf8");
       for (const line of text.split(/\r?\n/)) {
         if (line.trim()) {
@@ -2850,8 +2898,63 @@ class EventListener {
     await this.taskManager.save();
   }
 
+  async _refreshFailureBeforeRetry(task, reason) {
+    if (!STATE_BACKED_TASK_TYPES.has(task.type)) {
+      return { handled: false, options: {} };
+    }
+
+    let snapshot;
+    try {
+      snapshot = await this.fetchPrSnapshot(task.prKey, {
+        timeoutMs: GH_TIMEOUT_MS,
+      });
+    } catch (error) {
+      this.actionLogger.writeLine(
+        `[${nowStamp()}] event_failure_refresh_failed pr=${task.prKey} task=${task.id} type=${task.type} reason=${truncate(error.message || error, 300)}`,
+      );
+      return { handled: false, options: {} };
+    }
+
+    const boundary = buildBoundaryFromSnapshot(snapshot);
+    if (boundaryRefreshRegresses(task.boundary, boundary)) {
+      this.actionLogger.writeLine(
+        `[${nowStamp()}] event_failure_boundary_regressed pr=${task.prKey} task=${task.id} type=${task.type} current=${task.boundary?.snapshotUpdatedAt || "none"} candidate=${boundary.snapshotUpdatedAt || "none"}`,
+      );
+      return { handled: false, options: {} };
+    }
+
+    const options = {
+      boundary,
+      details: buildStateBackedTaskDetails(task.type, snapshot),
+    };
+
+    if (!isTaskTriggerActive(task.type, snapshot)) {
+      this.taskManager.fail(task.id, reason, options);
+      try {
+        await this._scanSnapshot(snapshot);
+        await this.saveAll();
+        this.actionLogger.writeLine(
+          `[${nowStamp()}] event_failure_trigger_cleared pr=${task.prKey} task=${task.id} type=${task.type} reason=${truncate(reason, 300)}`,
+        );
+      } catch (error) {
+        this.actionLogger.writeLine(
+          `[${nowStamp()}] event_failure_refresh_failed pr=${task.prKey} task=${task.id} type=${task.type} reason=${truncate(error.message || error, 300)}`,
+        );
+        await this.taskManager.save();
+      }
+      return { handled: true, options };
+    }
+
+    return { handled: false, options };
+  }
+
   async _handleTaskFailure(task, reason) {
-    const updated = this.taskManager.fail(task.id, reason);
+    const refreshed = await this._refreshFailureBeforeRetry(task, reason);
+    if (refreshed.handled) {
+      return;
+    }
+
+    const updated = this.taskManager.fail(task.id, reason, refreshed.options);
     if (!updated) {
       return;
     }
