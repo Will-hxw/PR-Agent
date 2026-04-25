@@ -680,6 +680,17 @@ function buildBoundaryFromCategorySnapshot(snapshot, category) {
   };
 }
 
+function normalizeBoundaryTimestamp(value) {
+  if (typeof value !== "string") {
+    return null;
+  }
+  const trimmed = value.trim();
+  if (!trimmed || !Number.isFinite(Date.parse(trimmed))) {
+    return null;
+  }
+  return trimmed;
+}
+
 function normalizeBoundary(raw) {
   if (!raw || typeof raw !== "object") {
     return {
@@ -693,8 +704,22 @@ function normalizeBoundary(raw) {
     issueCommentCursor: normalizeCursor(raw.issueCommentCursor),
     reviewCommentCursor: normalizeCursor(raw.reviewCommentCursor),
     reviewCursor: normalizeCursor(raw.reviewCursor),
-    snapshotUpdatedAt: raw.snapshotUpdatedAt || null,
+    snapshotUpdatedAt: normalizeBoundaryTimestamp(raw.snapshotUpdatedAt),
   };
+}
+
+function boundaryRefreshRegresses(currentBoundary, nextBoundary) {
+  const current = normalizeBoundary(currentBoundary);
+  const next = normalizeBoundary(nextBoundary);
+  const currentMs = parseTimestampMs(current.snapshotUpdatedAt);
+  const nextMs = parseTimestampMs(next.snapshotUpdatedAt);
+  if (!Number.isFinite(currentMs)) {
+    return false;
+  }
+  if (!Number.isFinite(nextMs)) {
+    return true;
+  }
+  return nextMs < currentMs;
 }
 
 function normalizeLegacyStatus(value) {
@@ -1668,6 +1693,9 @@ class EventState {
 
     if (task.type === "REVIEW_CHANGES_REQUESTED") {
       entry.baseline.reviewDecision = snapshot.reviewDecision;
+      entry.baseline.commentBaselines.maintainer = normalizeCommentCursorSet(
+        buildBoundaryFromCategorySnapshot(snapshot, "maintainer"),
+      );
     }
 
     if (MERGE_TASK_TYPES.has(task.type)) {
@@ -2238,6 +2266,13 @@ class EventListener {
       }
 
       primary.severity = candidate.severity;
+      if (boundaryRefreshRegresses(primary.boundary, candidate.boundary)) {
+        this.actionLogger.writeLine(
+          `[${nowStamp()}] event_boundary_regressed pr=${snapshot.prKey} type=${primary.type} task=${primary.id} current=${primary.boundary?.snapshotUpdatedAt || "none"} candidate=${candidate.boundary?.snapshotUpdatedAt || "none"}`,
+        );
+        candidateTasks.delete(type);
+        continue;
+      }
       primary.details = cloneJson(candidate.details);
       primary.boundary = normalizeBoundary(candidate.boundary);
       this.actionLogger.writeLine(
@@ -2985,6 +3020,7 @@ if (require.main === module) {
     isOwnRepositoryPrKey,
     normalizeBaseline,
     normalizeBoundary,
+    normalizeBoundaryTimestamp,
     normalizeTaskRecord,
     normalizeCommentBaselines,
     normalizeCommentCursorSet,
