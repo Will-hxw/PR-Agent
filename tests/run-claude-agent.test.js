@@ -1610,6 +1610,87 @@ test("mixed comment batch is split into maintainer bot and user tasks", async ()
   assert.equal(tasksByType.NEW_COMMENT.details.latestActivity.authorLogin, "contributor");
 });
 
+test("edited existing comments create category tasks", async () => {
+  const oldSnapshot = makeSnapshot({
+    prKey: "demo/repo#83",
+    updatedAt: "2026-04-24T00:05:00.000Z",
+    issueComments: [
+      makeActivity({
+        id: 810,
+        createdAt: "2026-04-24T00:01:00.000Z",
+        updatedAt: "2026-04-24T00:01:00.000Z",
+        authorLogin: "maintainer",
+        authorAssociation: "OWNER",
+        body: "placeholder maintainer note",
+      }),
+      makeActivity({
+        id: 811,
+        createdAt: "2026-04-24T00:02:00.000Z",
+        updatedAt: "2026-04-24T00:02:00.000Z",
+        authorLogin: "review-bot[bot]",
+        authorType: "Bot",
+        body: "placeholder bot note",
+      }),
+      makeActivity({
+        id: 812,
+        createdAt: "2026-04-24T00:03:00.000Z",
+        updatedAt: "2026-04-24T00:03:00.000Z",
+        authorLogin: "external-user",
+        body: "placeholder user note",
+      }),
+    ],
+  });
+  const editedSnapshot = makeSnapshot({
+    prKey: oldSnapshot.prKey,
+    updatedAt: "2026-04-24T00:10:00.000Z",
+    issueComments: [
+      makeActivity({
+        id: 810,
+        createdAt: "2026-04-24T00:01:00.000Z",
+        updatedAt: "2026-04-24T00:07:00.000Z",
+        authorLogin: "maintainer",
+        authorAssociation: "OWNER",
+        body: "edited maintainer request",
+      }),
+      makeActivity({
+        id: 811,
+        createdAt: "2026-04-24T00:02:00.000Z",
+        updatedAt: "2026-04-24T00:08:00.000Z",
+        authorLogin: "review-bot[bot]",
+        authorType: "Bot",
+        body: "edited bot failure details",
+      }),
+      makeActivity({
+        id: 812,
+        createdAt: "2026-04-24T00:03:00.000Z",
+        updatedAt: "2026-04-24T00:09:00.000Z",
+        authorLogin: "external-user",
+        body: "edited user follow-up",
+      }),
+    ],
+  });
+  const listener = createListener();
+  const entry = listener.state.getOrInit(oldSnapshot.prKey);
+  entry.baseline = agent.baselineFromSnapshot(oldSnapshot);
+
+  await listener._scanSnapshot(editedSnapshot);
+
+  const tasksByType = Object.fromEntries(listener.taskManager.events.map((event) => [event.type, event]));
+  assert.deepStrictEqual(Object.keys(tasksByType).sort(), ["BOT_COMMENT", "MAINTAINER_COMMENT", "NEW_COMMENT"]);
+  assert.deepStrictEqual(
+    tasksByType.MAINTAINER_COMMENT.details.activities.map((activity) => activity.excerpt),
+    ["edited maintainer request"],
+  );
+  assert.deepStrictEqual(
+    tasksByType.BOT_COMMENT.details.activities.map((activity) => activity.excerpt),
+    ["edited bot failure details"],
+  );
+  assert.deepStrictEqual(
+    tasksByType.NEW_COMMENT.details.activities.map((activity) => activity.excerpt),
+    ["edited user follow-up"],
+  );
+});
+
 test("own contributor comments do not create comment tasks", async () => {
   const listener = createListener();
   await listener._scanSnapshot(makeSnapshot({
