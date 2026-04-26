@@ -16,6 +16,7 @@ const CONFIG_FILE = path.join(ROOT_DIR, "agent.config.json");
 const CONFIG_EXAMPLE_FILE = path.join(ROOT_DIR, "agent.config.example.json");
 const AGENT_CONFIG = loadAgentConfig();
 const CONTRIBUTOR_LOGIN = AGENT_CONFIG.contributorLogin;
+const RUNTIME_JSON_SCHEMA_VERSION = 1;
 
 const DEFAULTS = {
   cwd: ROOT_DIR,
@@ -483,6 +484,19 @@ function sleep(ms) {
 
 function cloneJson(value) {
   return value == null ? value : JSON.parse(JSON.stringify(value));
+}
+
+function normalizeRuntimeRevision(value) {
+  return typeof value === "string" && value.trim() ? value : null;
+}
+
+function assertRuntimeRevisionCompatible(stateRevision, taskRevision) {
+  const normalizedStateRevision = normalizeRuntimeRevision(stateRevision);
+  const normalizedTaskRevision = normalizeRuntimeRevision(taskRevision);
+  if (!normalizedStateRevision || !normalizedTaskRevision || normalizedStateRevision === normalizedTaskRevision) {
+    return;
+  }
+  throw new Error(`Runtime JSON revision mismatch: state=${normalizedStateRevision} task=${normalizedTaskRevision}`);
 }
 
 function isValidPid(value) {
@@ -974,7 +988,15 @@ function formatUntrustedTaskDetails(details) {
 
 function buildSubagentPrompt(task) {
   const { owner, repo, prNumber } = parsePrKey(task.prKey);
-  const resultLine = `${TASK_RESULT_PREFIX}${JSON.stringify(buildTaskResultRecord(task, "resolved", "handled", "Brief outcome summary"))}`;
+  const resultLine = `${TASK_RESULT_PREFIX}${JSON.stringify({
+    version: 2,
+    eventId: "<copy eventId from this task>",
+    prKey: "<copy prKey from this task>",
+    type: "<copy type from this task>",
+    status: "resolved",
+    reason: "handled",
+    summary: "Brief outcome summary",
+  })}`;
   return [
     `请处理 PR 事件：${task.prKey}`,
     `事件类型：${task.type}`,
@@ -1421,6 +1443,17 @@ function buildBlockedTaskDetailsFromResult(task, result, snapshot = null) {
   }
   details.taskResult = buildTaskResultDetail(result);
   return details;
+}
+
+function buildBoundaryForTaskResult(task, snapshot) {
+  if (!snapshot) {
+    return task.boundary;
+  }
+  const category = commentCategoryForTaskType(task.type);
+  if (category) {
+    return buildBoundaryFromCategorySnapshot(snapshot, category);
+  }
+  return buildBoundaryFromSnapshot(snapshot);
 }
 
 function normalizeTaskResultPayload(payload) {
@@ -1964,34 +1997,41 @@ async function fetchPrTerminalStatus(prKey) {
 }
 
 class EventState {
-  constructor() {
+  constructor(options = {}) {
+    this.filePath = options.filePath || STATE_FILE;
     this.prs = new Map();
     this.lastSyncAt = null;
+    this.revision = null;
   }
 
   async load() {
     try {
-      const raw = await fsPromises.readFile(STATE_FILE, "utf8");
+      const raw = await fsPromises.readFile(this.filePath, "utf8");
       const obj = JSON.parse(raw);
       this.prs = new Map(
         Object.entries(obj.prs || {}).map(([prKey, entry]) => [prKey, normalizeStateEntry(prKey, entry)]),
       );
       this.lastSyncAt = obj.lastSyncAt || null;
+      this.revision = normalizeRuntimeRevision(obj.runtimeRevision);
     } catch (error) {
       if (error.code !== "ENOENT") {
-        throw new Error(`Failed to load ${STATE_FILE}: ${error.message}`);
+        throw new Error(`Failed to load ${this.filePath}: ${error.message}`);
       }
       this.prs = new Map();
       this.lastSyncAt = null;
+      this.revision = null;
     }
   }
 
-  async save() {
+  async save(runtimeRevision = null) {
+    this.revision = normalizeRuntimeRevision(runtimeRevision) || this.revision || randomUUID();
     const obj = {
+      schemaVersion: RUNTIME_JSON_SCHEMA_VERSION,
+      runtimeRevision: this.revision,
       prs: Object.fromEntries(this.prs),
       lastSyncAt: nowIso(),
     };
-    await writeJsonFileAtomic(STATE_FILE, obj);
+    await writeJsonFileAtomic(this.filePath, obj);
   }
 
   getOrInit(prKey) {
@@ -2058,27 +2098,36 @@ class EventState {
 }
 
 class EventTaskManager {
-  constructor() {
+  constructor(options = {}) {
+    this.filePath = options.filePath || TASK_FILE;
     this.events = [];
+    this.revision = null;
   }
 
   async load() {
     try {
-      const raw = await fsPromises.readFile(TASK_FILE, "utf8");
+      const raw = await fsPromises.readFile(this.filePath, "utf8");
       const obj = JSON.parse(raw);
       this.events = Array.isArray(obj.events)
         ? obj.events.map(normalizeTaskRecord).filter(Boolean)
         : [];
+      this.revision = normalizeRuntimeRevision(obj.runtimeRevision);
     } catch (error) {
       if (error.code !== "ENOENT") {
-        throw new Error(`Failed to load ${TASK_FILE}: ${error.message}`);
+        throw new Error(`Failed to load ${this.filePath}: ${error.message}`);
       }
       this.events = [];
+      this.revision = null;
     }
   }
 
-  async save() {
-    await writeJsonFileAtomic(TASK_FILE, { events: this.events });
+  async save(runtimeRevision = null) {
+    this.revision = normalizeRuntimeRevision(runtimeRevision) || this.revision || randomUUID();
+    await writeJsonFileAtomic(this.filePath, {
+      schemaVersion: RUNTIME_JSON_SCHEMA_VERSION,
+      runtimeRevision: this.revision,
+      events: this.events,
+    });
   }
 
   resetRunningTasks(nowMs = Date.now(), isAlive = isProcessAlive) {
@@ -2317,8 +2366,8 @@ class EventListener {
   constructor(config, actionLogger) {
     this.config = config;
     this.actionLogger = actionLogger;
-    this.state = new EventState();
-    this.taskManager = new EventTaskManager();
+    this.state = new EventState({ filePath: config.stateFile || STATE_FILE });
+    this.taskManager = new EventTaskManager({ filePath: config.taskFile || TASK_FILE });
     this.intervalMs = config.eventPollIntervalMs || DEFAULTS.eventPollIntervalMs;
     this.enabled = false;
     this.loaded = false;
@@ -2329,16 +2378,18 @@ class EventListener {
     this._lockHeld = false;
     this.lockFile = config.eventListenerLockFile || EVENT_LISTENER_LOCK_FILE;
     this.fetchPrSnapshot = config.fetchPrSnapshot || fetchPrSnapshot;
+    this.fetchPrTerminalStatus = config.fetchPrTerminalStatus || fetchPrTerminalStatus;
     this.activeSubagents = new Map();
     this.terminalPrs = new Set();
   }
 
-  async load() {
-    if (this.loaded) {
+  async load(options = {}) {
+    if (this.loaded && !options.force) {
       return;
     }
     await this.state.load();
     await this.taskManager.load();
+    assertRuntimeRevisionCompatible(this.state.revision, this.taskManager.revision);
     const resetCount = this.taskManager.resetRunningTasks();
     if (resetCount > 0) {
       this.actionLogger.writeLine(`[${nowStamp()}] event_listener_recovered_running_tasks count=${resetCount}`);
@@ -2348,13 +2399,19 @@ class EventListener {
   }
 
   async saveAll() {
-    await this.state.save();
-    await this.taskManager.save();
+    const runtimeRevision = randomUUID();
+    await this.state.save(runtimeRevision);
+    await this.taskManager.save(runtimeRevision);
   }
 
   async generateEventJson() {
-    await this.load();
+    const lockAcquired = await this._acquireEventListenerLock();
+    if (!lockAcquired) {
+      return false;
+    }
+    await this.load({ force: this.loaded });
     await this._refreshJsonState();
+    return true;
   }
 
   async bootstrapRefresh() {
@@ -2489,7 +2546,10 @@ class EventListener {
   }
 
   async _runPollCycle() {
-    await this.generateEventJson();
+    const generated = await this.generateEventJson();
+    if (generated === false) {
+      return;
+    }
     await this._dispatchRunnableTasks();
   }
 
@@ -2508,7 +2568,9 @@ class EventListener {
 
     for (const pr of prList) {
       try {
-        const snapshot = await fetchPrSnapshot(pr.prKey);
+        const snapshot = await this.fetchPrSnapshot(pr.prKey, {
+          timeoutMs: GH_TIMEOUT_MS,
+        });
         await this._scanSnapshot(snapshot);
       } catch (error) {
         this.actionLogger.writeLine(`${logPrefix} pr_scan_failed pr=${pr.prKey} err=${truncate(error.message || error, 300)}`);
@@ -2552,7 +2614,11 @@ class EventListener {
     const removedTaskCount = this.taskManager.removeByPrKey(prKey);
     this.state.remove(prKey);
     this._processing.delete(prKey);
-    this.terminalPrs.delete(prKey);
+    if (this.activeSubagents.has(prKey)) {
+      this.terminalPrs.add(prKey);
+    } else {
+      this.terminalPrs.delete(prKey);
+    }
     this.actionLogger.writeLine(
       `[${nowStamp()}] ${logEvent} pr=${prKey} reason=${reason} tasks=${removedTaskCount}`,
     );
@@ -2574,7 +2640,7 @@ class EventListener {
           this._removeTrackedPr(prKey, "ignored_own_repository");
           continue;
         }
-        const terminalStatus = await fetchPrTerminalStatus(prKey);
+        const terminalStatus = await this.fetchPrTerminalStatus(prKey);
         if (!terminalStatus.terminal) {
           continue;
         }
@@ -3230,7 +3296,7 @@ class EventListener {
       task.id,
       blockReason,
       buildBlockedTaskDetailsFromResult(task, result, refreshedSnapshot),
-      refreshedSnapshot ? buildBoundaryFromSnapshot(refreshedSnapshot) : task.boundary,
+      buildBoundaryForTaskResult(task, refreshedSnapshot),
       buildBlockMetadataFromActionability(actionability, refreshedSnapshot),
     );
     if (!updated) {
@@ -3350,15 +3416,25 @@ class EventListener {
 }
 
 async function refreshEventJsonOnce(options = {}, actionLogger = { writeLine() {} }) {
+  const ownsListener = !options.listener;
   const listener = options.listener || new EventListener({
     cwd: path.resolve(options.cwd || DEFAULTS.cwd),
     claudeCommand: options.claudeCommand || DEFAULTS.claudeCommand,
     eventPollIntervalMs: options.eventPollIntervalMs || DEFAULTS.eventPollIntervalMs,
     eventNotificationEnabled: options.eventNotificationEnabled === true,
     enableTaskDispatch: false,
+    stateFile: options.stateFile,
+    taskFile: options.taskFile,
+    eventListenerLockFile: options.eventListenerLockFile,
   }, actionLogger);
 
-  await listener.bootstrapRefresh();
+  try {
+    await listener.bootstrapRefresh();
+  } finally {
+    if (ownsListener) {
+      listener.stop();
+    }
+  }
   return listener;
 }
 
@@ -3716,13 +3792,17 @@ if (require.main === module) {
     EventTaskManager,
     TASK_ACTIONABILITY,
     TASK_EVENT_SEVERITY,
+    TASK_FILE,
     TASK_STATUS,
+    STATE_FILE,
+    assertRuntimeRevisionCompatible,
     baselineFromSnapshot,
     buildBoundaryFromCategorySnapshot,
     buildBoundaryFromSnapshot,
     buildCommentBaselinesFromSnapshot,
     buildCommentCursorSet,
     buildCursor,
+    buildDefaultPrompt,
     buildGhGraphQLArgs,
     buildSubagentPrompt,
     buildTaskResultRecord,

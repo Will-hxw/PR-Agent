@@ -7,6 +7,7 @@
 - 人工编辑运行时 JSON 前，必须先停止正在运行的 event listener / launcher。
 - 不要在 listener 运行期间手工编辑 `event_task.json` 或 `event_state.json`；当前 listener 会持有内存状态，下一轮轮询保存时可能覆盖磁盘上的人工更新。
 - `update.sh` 只用于按启动路径刷新 JSON，不是人工删除或确认 task 的替代入口。
+- `event_state.json` 与 `event_task.json` 的 `runtimeRevision` 必须保持一致；人工编辑两个文件时不要改成不同 revision。
 - 如果 listener 无法停止，先不要编辑 JSON；应记录需要处理的 `task.id`、`prKey`、`type` 和最新 GitHub 状态，等 listener 停止后再维护。
 
 ## 核心规则

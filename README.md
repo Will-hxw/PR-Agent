@@ -227,12 +227,13 @@ node run-claude-agent.js \
 <repo-root>/event_task.json
 ```
 
-这些文件是本地运行状态，已由 `.gitignore` 忽略。
+这些文件是本地运行状态，已由 `.gitignore` 忽略。两者会写入同一个 `runtimeRevision`；如果两个文件的 revision 不一致，launcher 会拒绝加载，避免使用不同轮次的 state/task 组合继续派发。
 
 ### `event_task.json`
 
 只保留活跃或失败未清理的 task。关键字段：
 
+- `runtimeRevision`
 - `status`: `pending | running | blocked | dead`
 - `attemptCount`
 - `lastAttemptAt`
@@ -272,6 +273,7 @@ node run-claude-agent.js \
 
 保存每个 PR 的 handled baseline 和 last observed snapshot。评论流按来源拆分为：
 
+- `runtimeRevision`
 - `commentBaselines.maintainer.issueCommentCursor`
 - `commentBaselines.maintainer.reviewCommentCursor`
 - `commentBaselines.maintainer.reviewCursor`

@@ -115,6 +115,25 @@ function makeTask(overrides = {}) {
   };
 }
 
+async function createRuntimeFiles(prefix = "pr-agent-runtime-") {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), prefix));
+  return {
+    dir,
+    stateFile: path.join(dir, "event_state.json"),
+    taskFile: path.join(dir, "event_task.json"),
+    lockFile: path.join(dir, "event-listener.lock"),
+  };
+}
+
+function createIsolatedListener(runtime, overrides = {}) {
+  return createListener({
+    stateFile: runtime.stateFile,
+    taskFile: runtime.taskFile,
+    eventListenerLockFile: runtime.lockFile,
+    ...overrides,
+  });
+}
+
 test("stale pending and dead tasks are removed when trigger disappears", async () => {
   const listener = createListener();
   const failedSnapshot = makeSnapshot({
@@ -422,6 +441,46 @@ test("subagent prompt isolates untrusted PR activity details", () => {
   assert.doesNotMatch(prompt, /成功确认协议/);
 });
 
+test("subagent does not accept an echoed prompt example as task result", async () => {
+  const listener = createListener();
+  listener.taskManager.save = async () => {};
+  const child = new EventEmitter();
+  child.stdout = new EventEmitter();
+  child.stderr = new EventEmitter();
+  let promptText = "";
+  child.stdin = {
+    write(chunk) {
+      const event = JSON.parse(String(chunk));
+      promptText = event.message.content[0].text;
+    },
+    end() {},
+  };
+  child.pid = 7890;
+  listener._spawnSubagent = () => child;
+
+  const task = listener.taskManager.add(
+    "demo/repo#70",
+    "NEW_COMMENT",
+    agent.TASK_EVENT_SEVERITY.NEW_COMMENT,
+    { snapshotSummary: "comment" },
+    agent.normalizeBoundary(null),
+  );
+
+  await listener._startTask(task);
+  child.stdout.emit("data", Buffer.from(`${JSON.stringify({
+    type: "assistant",
+    message: {
+      content: [{ type: "text", text: `I am quoting the instructions:\n${promptText}\n` }],
+    },
+  })}\n`));
+  child.emit("close", 0, null);
+  await new Promise((resolve) => setImmediate(resolve));
+
+  const updated = listener.taskManager.getById(task.id);
+  assert.equal(updated.status, agent.TASK_STATUS.PENDING);
+  assert.match(updated.lastError, /task_result_payload_mismatch|missing_task_result/);
+});
+
 test("task result parser accepts v2 statuses and legacy success ack", () => {
   const task = makeTask({ id: "result-task", prKey: "demo/repo#7", type: "CI_FAILURE" });
 
@@ -699,6 +758,141 @@ test("standalone refresh uses bootstrap path without dispatch", async () => {
   assert.deepStrictEqual(calls, ["bootstrap"]);
 });
 
+test("generateEventJson uses injected fetchPrSnapshot", async () => {
+  const runtime = await createRuntimeFiles();
+  try {
+    let fetchCount = 0;
+    const listener = createIsolatedListener(runtime, {
+      fetchPrSnapshot: async (prKey) => {
+        fetchCount += 1;
+        return makeSnapshot({
+          prKey,
+          statusCheckState: "FAILED",
+          failingChecks: [{ label: "lint / eslint", conclusion: "FAILURE" }],
+        });
+      },
+    });
+    listener._fetchOpenPrList = async () => [{ prKey: "demo/repo#71" }];
+
+    await listener.generateEventJson();
+    listener.stop();
+
+    assert.equal(fetchCount, 1);
+    const taskFile = JSON.parse(await fs.readFile(runtime.taskFile, "utf8"));
+    assert.equal(taskFile.events.length, 1);
+    assert.equal(taskFile.events[0].type, "CI_FAILURE");
+  } finally {
+    await fs.rm(runtime.dir, { recursive: true, force: true });
+  }
+});
+
+test("second refresh skips while active listener holds runtime lock", async () => {
+  const runtime = await createRuntimeFiles();
+  try {
+    const first = createIsolatedListener(runtime);
+    first._fetchOpenPrList = async () => [];
+
+    const second = createIsolatedListener(runtime);
+    second._fetchOpenPrList = async () => {
+      throw new Error("second listener should not scan while lock is active");
+    };
+
+    assert.equal(await first.generateEventJson(), true);
+    assert.equal(await second.generateEventJson(), false);
+    assert.ok(second.actionLogger.lines.some((line) => line.includes("event_listener_lock_active")));
+    first.stop();
+  } finally {
+    await fs.rm(runtime.dir, { recursive: true, force: true });
+  }
+});
+
+test("listener reloads external task deletion before next poll save", async () => {
+  const runtime = await createRuntimeFiles();
+  try {
+    const snapshot = makeSnapshot({
+      prKey: "demo/repo#72",
+      issueComments: [
+        makeActivity({
+          id: 720,
+          createdAt: "2026-04-24T00:01:00.000Z",
+          authorLogin: "maintainer",
+          authorAssociation: "OWNER",
+          body: "Please update this.",
+        }),
+      ],
+    });
+    const listener = createIsolatedListener(runtime, {
+      fetchPrSnapshot: async () => snapshot,
+    });
+    listener._fetchOpenPrList = async () => [{ prKey: snapshot.prKey }];
+
+    await listener.generateEventJson();
+    const firstTasks = JSON.parse(await fs.readFile(runtime.taskFile, "utf8"));
+    assert.equal(firstTasks.events.length, 1);
+
+    const stateFile = JSON.parse(await fs.readFile(runtime.stateFile, "utf8"));
+    const taskFile = JSON.parse(await fs.readFile(runtime.taskFile, "utf8"));
+    stateFile.prs[snapshot.prKey].baseline.commentBaselines.maintainer = agent.buildBoundaryFromCategorySnapshot(snapshot, "maintainer");
+    stateFile.prs[snapshot.prKey].baseline.updatedAt = snapshot.updatedAt;
+    taskFile.events = [];
+    await agent.writeJsonFileAtomic(runtime.stateFile, stateFile);
+    await agent.writeJsonFileAtomic(runtime.taskFile, taskFile);
+
+    await listener._runPollCycle();
+    listener.stop();
+
+    const finalTasks = JSON.parse(await fs.readFile(runtime.taskFile, "utf8"));
+    assert.deepStrictEqual(finalTasks.events, []);
+  } finally {
+    await fs.rm(runtime.dir, { recursive: true, force: true });
+  }
+});
+
+test("non-default cwd still points prompt and runtime files at launcher root", async () => {
+  const runtime = await createRuntimeFiles();
+  try {
+    const listener = createListener({
+      cwd: runtime.dir,
+      stateFile: runtime.stateFile,
+      taskFile: runtime.taskFile,
+    });
+    const prompt = agent.buildDefaultPrompt();
+
+    assert.equal(listener.config.cwd, runtime.dir);
+    assert.equal(listener.state.filePath, runtime.stateFile);
+    assert.equal(listener.taskManager.filePath, runtime.taskFile);
+    assert.match(prompt, new RegExp(agent.STATE_FILE.replace(/[\\^$.*+?()[\]{}|]/g, "\\$&")));
+    assert.match(prompt, new RegExp(agent.TASK_FILE.replace(/[\\^$.*+?()[\]{}|]/g, "\\$&")));
+  } finally {
+    await fs.rm(runtime.dir, { recursive: true, force: true });
+  }
+});
+
+test("state and task runtime revision mismatch is rejected on load", async () => {
+  const runtime = await createRuntimeFiles();
+  try {
+    await agent.writeJsonFileAtomic(runtime.stateFile, {
+      schemaVersion: 1,
+      runtimeRevision: "state-revision",
+      prs: {},
+      lastSyncAt: "2026-04-24T00:00:00.000Z",
+    });
+    await agent.writeJsonFileAtomic(runtime.taskFile, {
+      schemaVersion: 1,
+      runtimeRevision: "task-revision",
+      events: [],
+    });
+    const listener = createIsolatedListener(runtime);
+
+    await assert.rejects(
+      () => listener.load(),
+      /Runtime JSON revision mismatch: state=state-revision task=task-revision/,
+    );
+  } finally {
+    await fs.rm(runtime.dir, { recursive: true, force: true });
+  }
+});
+
 test("ready to merge is notify-only and does not create a task", async () => {
   const listener = createListener();
   await listener._scanSnapshot(makeSnapshot({
@@ -876,6 +1070,42 @@ test("cleanup removes already tracked PRs in own repositories", async () => {
   assert.deepStrictEqual(listener.state.keys(), []);
   assert.deepStrictEqual(listener.taskManager.events, []);
   assert.equal(listener.actionLogger.lines.some((line) => line.includes("reason=ignored_own_repository")), true);
+});
+
+test("terminal cleanup marks active subagent result as ignored", async () => {
+  const child = new EventEmitter();
+  child.stdout = new EventEmitter();
+  child.stderr = new EventEmitter();
+  child.stdin = {
+    write() {},
+    end() {},
+  };
+  child.pid = 9876;
+  const listener = createListener({
+    fetchPrTerminalStatus: async () => ({ terminal: true, reason: "closed" }),
+  });
+  listener.taskManager.save = async () => {};
+  listener.saveAll = async () => {};
+  listener._spawnSubagent = () => child;
+  const task = listener.taskManager.add(
+    "demo/repo#74",
+    "NEW_COMMENT",
+    agent.TASK_EVENT_SEVERITY.NEW_COMMENT,
+    { snapshotSummary: "comment" },
+    agent.normalizeBoundary(null),
+  );
+
+  await listener._startTask(task);
+  assert.equal(listener.activeSubagents.has(task.prKey), true);
+  await listener._cleanupTerminalPrs(new Set());
+  assert.equal(listener.terminalPrs.has(task.prKey), true);
+
+  child.emit("close", 0, null);
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.equal(listener.activeSubagents.has(task.prKey), false);
+  assert.equal(listener.terminalPrs.has(task.prKey), false);
+  assert.equal(listener.actionLogger.lines.some((line) => line.includes("subagent_ignored_terminal")), true);
 });
 
 test("scan refreshes existing task details only with monotonic boundary", async () => {
@@ -1621,6 +1851,55 @@ test("blocked task result uses existing details when refresh fails", async () =>
   assert.equal(updated.details.snapshotSummary, "old");
   assert.equal(updated.details.taskResult.status, "blocked");
   assert.ok(listener.actionLogger.lines.some((line) => line.includes("task_result_refresh_failed")));
+});
+
+test("blocked comment task preserves category boundary", async () => {
+  const snapshot = makeSnapshot({
+    prKey: "demo/repo#73",
+    issueComments: [
+      makeActivity({
+        id: 730,
+        createdAt: "2026-04-24T00:01:00.000Z",
+        authorLogin: "review-bot[bot]",
+        authorType: "Bot",
+        body: "bot note",
+      }),
+      makeActivity({
+        id: 731,
+        createdAt: "2026-04-24T00:02:00.000Z",
+        authorLogin: "maintainer",
+        authorAssociation: "OWNER",
+        body: "maintainer note",
+      }),
+    ],
+  });
+  const listener = createListener({
+    fetchPrSnapshot: async () => snapshot,
+  });
+  listener.taskManager.save = async () => {};
+  const task = listener.taskManager.add(
+    snapshot.prKey,
+    "BOT_COMMENT",
+    agent.TASK_EVENT_SEVERITY.BOT_COMMENT,
+    { snapshotSummary: "bot comment" },
+    agent.buildBoundaryFromCategorySnapshot(snapshot, "bot"),
+  );
+  listener.taskManager.claim(task.id, 123);
+
+  await listener._handleTaskResult(task, {
+    version: 2,
+    eventId: task.id,
+    prKey: task.prKey,
+    type: task.type,
+    status: "blocked",
+    reason: "waiting for human confirmation",
+    summary: "Bot comment requires a human decision.",
+  });
+
+  const updated = listener.taskManager.getById(task.id);
+  assert.equal(updated.status, agent.TASK_STATUS.BLOCKED);
+  assert.equal(updated.boundary.issueCommentCursor.lastId, "730");
+  assert.equal(updated.boundary.issueCommentCursor.count, 1);
 });
 
 test("not actionable comment result advances matching baseline and removes task", async () => {
