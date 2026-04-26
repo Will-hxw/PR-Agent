@@ -110,8 +110,9 @@ const SEVERITY_ORDER = {
 
 function buildDefaultPrompt() {
   return [
-    "请用 JSON 解析工具读取仓库根目录下的 event_state.json 和 event_task.json，了解当前 PR 状态和未完成任务。",
-    "逐步处理 event_task.json 中的 task；主 Agent 亲自确认某个 task 已完成后，必须先按 doc/event-task-state-maintenance.md 更新 event_state.json，再删除 event_task.json 中的对应 task 条目，然后开始寻找新的 PR 项目。",
+    `请用 JSON 解析工具读取 launcher 根目录下的运行时状态文件：${STATE_FILE} 和 ${TASK_FILE}，了解当前 PR 状态和未完成任务。`,
+    "task-backed 事件由 launcher/subagent claim 并处理；主 Agent 不要直接处理、删除或手工编辑 event_task.json / event_state.json 中的 task。",
+    "如果必须人工维护运行时 JSON，先停止 event listener，再按 doc/event-task-state-maintenance.md 操作，避免运行中的 listener 覆盖手工更新。",
     "请同时维护本仓库的 git 状态；不要在本仓库创建贡献分支，但可以在 candidates/ 中管理具体目标项目的 git。",
     "请遵守同目录下的 AGENT.md 与 doc/pr_rule.md。",
   ].join("\n");
@@ -285,7 +286,7 @@ function printHelp() {
       "Usage: node run-claude-agent.js [options]",
       "",
       "Options:",
-      "  --cwd <path>                  Claude 工作目录，默认当前仓库根目录",
+      "  --cwd <path>                  Claude 工作目录；event_state.json / event_task.json 固定写入 launcher 根目录",
       "  --idle-seconds <n>            连续无输出多少秒后补发提示，默认 300",
       "  --initial-delay-seconds <n>   启动后等待多久再发送首条提示，默认 8",
       "  --nudge-cooldown-seconds <n>  两次补发之间至少间隔多少秒，默认 30",
@@ -2363,7 +2364,7 @@ class EventListener {
   async start() {
     await this.load();
     this.enabled = true;
-    // 启动时不立即 dispatch，让主 Claude 通过 prompt 处理 bootstrap 产生的 task
+    await this._dispatchRunnableTasks();
     this._scheduleNext();
     this.actionLogger.writeLine(`[${nowStamp()}] event_listener_start interval=${this.intervalMs}ms`);
   }

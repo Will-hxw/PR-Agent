@@ -667,6 +667,22 @@ test("startup and polling use the same JSON generation path", async () => {
   assert.deepStrictEqual(calls, ["generate", "dispatch"]);
 });
 
+test("event listener dispatches runnable bootstrap tasks on start", async () => {
+  const listener = createListener({ enableTaskDispatch: true });
+  const calls = [];
+  listener.load = async () => {
+    calls.push("load");
+  };
+  listener._dispatchRunnableTasks = async () => {
+    calls.push("dispatch");
+  };
+
+  await listener.start();
+  listener.stop();
+
+  assert.deepStrictEqual(calls, ["load", "dispatch"]);
+});
+
 test("standalone refresh uses bootstrap path without dispatch", async () => {
   const listener = createListener();
   const calls = [];

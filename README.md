@@ -150,7 +150,7 @@ node run-claude-agent.js \
 
 | 参数 | 默认值 | 说明 |
 |---|---:|---|
-| `--cwd` | 当前仓库根目录 | Claude 工作目录 |
+| `--cwd` | 当前仓库根目录 | Claude 工作目录；`event_state.json` / `event_task.json` 仍固定写入 launcher 根目录 |
 | `--prompt` | 内置提示 | 发送给 Claude 的初始提示和后续提醒内容 |
 | `--claude-command` | Windows: `claude.cmd`；其他平台: `claude` | Claude CLI 命令 |
 | `--effort` | `max` | Claude 思考强度：`low` / `middle` / `high` / `xhigh` / `max` |
@@ -195,10 +195,10 @@ node run-claude-agent.js \
 
 事件监听的硬规则：
 
-- 启动时和每次轮询必须调用同一个 `generateEventJson()` 入口生成 `event_state.json` / `event_task.json`；subagent 派发只能发生在该入口完成并保存之后。
+- 启动时和每次轮询必须调用同一个 `generateEventJson()` 入口生成 `event_state.json` / `event_task.json`；subagent 派发只能发生在该入口完成并保存之后，启动刷新产生的 runnable task 也由 launcher/subagent claim，不交给主 Agent 手工处理。
 - 只要 `event_task.json` 中仍存在同 `prKey + type` 的 task，就视为去重命中，不会重复建 task。
-- task 成功后直接从 `event_task.json` 删除，不保留 handled 历史项；subagent 完成时输出结构化 `task result`，由 launcher 自动删除、block 或 retry；主 Agent 亲自处理并确认完成时可以直接删除对应 task 条目。
-- 主 Agent 手工删除 task 前，必须先按 `doc/event-task-state-maintenance.md` 更新 `event_state.json` 的 handled baseline。
+- task 成功后直接从 `event_task.json` 删除，不保留 handled 历史项；subagent 完成时输出结构化 `task result`，由 launcher 自动删除、block 或 retry。
+- 主 Agent 不直接处理、删除或手工编辑 task。只有在 listener 已停止、且需要人工维护运行时 JSON 时，才按 `doc/event-task-state-maintenance.md` 更新 `event_state.json` 的 handled baseline 并清理对应 task。
 - task 失败最多自动尝试 5 次；超过上限后变成 `dead`。`dead` 只在底层触发条件仍然存在时继续阻塞同类事件；如果触发条件消失，会在后续扫描中自动回收。
 - `CI_FAILURE`、`REVIEW_CHANGES_REQUESTED`、`NEEDS_REBASE` 这类状态型 task 只有在 GitHub 最新状态里的触发条件消失后才允许清除；如果 subagent 报告 `resolved` 但触发条件仍存在，应进入 `blocked`，如果报告 `blocked` / `needs_human`，launcher 直接保留为 `blocked`。
 - 状态型 task 在扫描和失败重试前会先做 actionability 分类：明确需要 contributor、maintainer、人类决策或基础设施处理的任务直接进入 `blocked`，只有 agent 可行动或无法确定的任务才会进入自动派发。
@@ -220,7 +220,7 @@ node run-claude-agent.js \
 `-- claude_actions_YYYYMMDD_HHMMSS.log
 ```
 
-事件监听状态写入工作区根目录：
+事件监听状态固定写入 launcher 根目录；`--cwd` 只影响 Claude 工作目录，不改变以下 runtime JSON 的位置：
 
 ```text
 <repo-root>/event_state.json

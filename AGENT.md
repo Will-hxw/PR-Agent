@@ -361,20 +361,20 @@ PR 提交后，工作没有结束。
 
 事件监听的运行规则：
 
-- task-backed 事件统一进入 subagent，不再依赖主会话手工完成闭环。
+- task-backed 事件统一进入 launcher/subagent，不再依赖主会话手工完成闭环。
 - 目前 task-backed 事件包括：`CI_FAILURE`、`REVIEW_CHANGES_REQUESTED`、`MAINTAINER_COMMENT`、`BOT_COMMENT`、`NEW_COMMENT`、`NEEDS_REBASE`。
-- 启动时和每次轮询必须调用同一个 `generateEventJson()` 入口生成 `event_state.json` / `event_task.json`；subagent 派发只能发生在该入口完成并保存之后。
+- 启动时和每次轮询必须调用同一个 `generateEventJson()` 入口生成 `event_state.json` / `event_task.json`；subagent 派发只能发生在该入口完成并保存之后，启动刷新产生的 runnable task 也由 launcher/subagent claim。
 - `CI_PASSED`、`REVIEW_APPROVED`、`READY_TO_MERGE` 只通知，不写 task。
 - 去重语义是“同 `prKey + type` 的 task 仍存在时不重复建 task”，不是全局唯一。
-- task 成功后会直接从 `event_task.json` 删除：subagent 完成时输出结构化 `task result`，由 launcher 自动删除、block 或 retry；主代理亲自处理并确认完成时，可以直接删除对应 task 条目；失败会重试，达到上限后进入 `dead`。
-- 主代理手工删除 task 前，必须先按 `doc/event-task-state-maintenance.md` 更新 `event_state.json` 的 handled baseline；只删除 `event_task.json` 不代表事件已处理，下一次扫描可能重新生成同类 task。
+- task 成功后会直接从 `event_task.json` 删除：subagent 完成时输出结构化 `task result`，由 launcher 自动删除、block 或 retry；失败会重试，达到上限后进入 `dead`。
+- 主代理不直接处理、删除或手工编辑 task。只有在 listener 已停止、且需要人工维护运行时 JSON 时，才按 `doc/event-task-state-maintenance.md` 更新 `event_state.json` 的 handled baseline 并清理对应 task；只删除 `event_task.json` 不代表事件已处理，下一次扫描可能重新生成同类 task。
 - `CI_FAILURE`、`REVIEW_CHANGES_REQUESTED`、`NEEDS_REBASE` 这类状态型 task 只有在 GitHub 最新状态里的触发条件消失后才允许清除；如果 subagent 报告 `resolved` 但触发条件仍存在，应进入 `blocked`；如果报告 `blocked` / `needs_human`，launcher 直接保留为 `blocked`。
 - 状态型 task 会先按 actionability 分类：明确需要 contributor、maintainer、人类决策或基础设施处理的任务直接 `blocked`；agent 可行动或无法确定的任务才允许自动派发。
 - `pending` / `dead` task 只在底层触发条件仍然成立时继续保留；如果触发条件消失，会在后续扫描中自动回收，不再阻塞 dedupe。
 - 评论 backlog 按 `MAINTAINER_COMMENT`、`BOT_COMMENT`、`NEW_COMMENT` 三类独立跟踪，同一轮扫描里可以并存，不再折叠成单条评论 task。
 - 配置的 contributor login 自己发布的评论和 review 不生成 `NEW_COMMENT`，避免 agent 回复后再把自己的回复派发成新任务。
 
-运行产物：
+运行产物固定写入 launcher 根目录；`--cwd` 只影响 Claude 工作目录，不改变这些 runtime JSON 的位置：
 
 - `.claude_agent_logs/claude_stream_*.jsonl`
 - `.claude_agent_logs/claude_actions_*.log`
@@ -394,7 +394,7 @@ PR 提交后，工作没有结束。
 
 `running` task 会记录 `claimedAt`、`runningPid` 和 `lastOutputAt`；重启恢复时优先按最后输出时间判断是否超时。
 
-如果 `dead` task 阻塞了后续同类事件，人工处理方式只有两种：
+如果 `dead` task 阻塞了后续同类事件，必须先停止 listener，再选择以下人工处理方式之一：
 
 - 直接删除该 task 条目，彻底解除阻塞。
 - 手动改回 `pending`，并同时重置 `attemptCount`、`lastAttemptAt`、`nextRetryAt`、`lastError`、`claimedAt`、`runningPid`、`lastOutputAt`、`blockOwner`、`blockCategory`、`unblockHint`、`blockedSnapshot`。
@@ -411,7 +411,7 @@ PR 提交后，工作没有结束。
 - `commentBaselines.user.reviewCommentCursor`
 - `commentBaselines.user.reviewCursor`
 
-评论 task 成功时，只推进对应 category 的 cursor；其他 category 的 baseline 不会被一并推进。手工维护步骤见 `doc/event-task-state-maintenance.md`。
+评论 task 成功时，只推进对应 category 的 cursor；其他 category 的 baseline 不会被一并推进。listener 停止后的人工维护步骤见 `doc/event-task-state-maintenance.md`。
 
 如果运行环境支持 subagent，且任务能独立并行，可用于信息收集、CI 失败调查或多个 PR 状态检查。主代理必须保留最终决策权，并避免多个 agent 同时修改同一工作树。
 
