@@ -118,8 +118,8 @@ const SEVERITY_ORDER = {
 function buildDefaultPrompt() {
   return [
     `请用 JSON 解析工具读取 launcher 根目录下的运行时状态文件：${STATE_FILE} 和 ${TASK_FILE}，了解当前 PR 状态和未完成任务。`,
-    "task-backed 事件由 launcher/subagent claim 并处理；主 Agent 不要直接处理、删除或手工编辑 event_task.json / event_state.json 中的 task。",
-    "如果必须人工维护运行时 JSON，按 doc/event-task-state-maintenance.md 操作。",
+    "task-backed 事件由 launcher/subagent claim 并处理；你是主Agent 不要直接处理、删除或手工编辑 event_task.json / event_state.json。",
+    "如果必须维护 event_task.json / event_state.json，按 doc/event-task-state-maintenance.md 操作。",
     "请同时维护本仓库的 git 状态；不要在本仓库创建贡献分支，但可以在 candidates/ 中管理具体目标项目的 git。",
     "请遵守同目录下的 AGENT.md 与 doc/pr_rule.md。",
   ].join("\n");
