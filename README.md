@@ -196,7 +196,7 @@ node run-claude-agent.js \
 |---|---|---|
 | Event listener | `--enable-event-listener` | 轮询 open PR，发现 CI、Review、评论、merge 状态变化 |
 
-也可以运行 `update.sh` 做一次性 runtime JSON 刷新；它复用 event listener 启动刷新路径，但不启动 subagent 派发。若已有 listener 持有 active lock，`update.sh` 会输出 `event JSON skipped: active listener lock` 并以退出码 `2` 结束。
+也可以运行 `update.sh` 做一次性 runtime JSON 刷新；它复用 event listener 启动刷新路径，但不启动 subagent 派发。若已有 listener 持有 active lock，`update.sh` 会输出 `event JSON skipped: active listener lock` 并以退出码 `2` 结束；若 open PR search 失败，会以 strict refresh 失败退出，不能把旧 JSON 当作本次刷新成功。
 
 事件模型分为两类：
 
@@ -205,12 +205,14 @@ node run-claude-agent.js \
 
 `READY_TO_MERGE` 默认要求 `reviewDecision=APPROVED`，以保持既有行为。没有强制 review 的仓库如需在 `reviewDecision=null` 且 CI 成功、可合并、无 unresolved review threads 时也发出 ready 通知，可设置 `readyToMergeReviewMode: "allow-no-review-required"` 或启动参数 `--ready-to-merge-review-mode allow-no-review-required`。该模式不会放行 `CHANGES_REQUESTED` 或 `REVIEW_REQUIRED`。
 
+`mergeStateStatus=BLOCKED` 是 GitHub 的汇总状态信号，本身不生成 task 或 notify；实际 task/notify 仍由 `statusCheckRollup`、`reviewDecision`、`mergeable`、`isDraft`、`unresolvedReviewThreadCount` 等具体字段决定。`NEEDS_REBASE` 只由 `BEHIND`、`DIRTY` 或 `mergeable=CONFLICTING` 触发。
+
 事件监听的硬规则：
 
 - 只有启用 `--enable-event-listener` 时，启动阶段才会调用 `generateEventJson()` 刷新 `event_state.json` / `event_task.json`；普通 `node run-claude-agent.js` 不刷新 PR event JSON，不生成无人派发的 task。
-- event listener 启动刷新、每次轮询和 `update.sh` 必须调用同一个 `generateEventJson()` 入口；subagent 派发只能发生在该入口完成并保存之后，启动刷新产生的 runnable task 也由 launcher/subagent claim，不交给主 Agent 手工处理。
+- event listener 启动刷新、每次轮询和 `update.sh` 必须调用同一个 `generateEventJson()` 入口；subagent 派发只能发生在该入口完成并保存之后，启动刷新产生的 runnable task 也由 launcher/subagent claim，不交给主 Agent 手工处理。open PR search 失败时本轮不派发任何旧 task；单个 PR snapshot 刷新失败时，本轮跳过该 `prKey` 的 task 派发，避免基于陈旧快照启动 subagent。
 - 只要 `event_task.json` 中仍存在同 `prKey + type` 的 task，就视为去重命中，不会重复建 task。
-- task 成功后直接从 `event_task.json` 删除，不保留 handled 历史项；subagent 完成时输出带 `nonce` 的结构化 `task result`，由 launcher 自动删除、block 或 retry。
+- task 成功后直接从 `event_task.json` 删除，不保留 handled 历史项；subagent 完成时输出带 `nonce` 的结构化 `task result`，由 launcher 自动删除、block 或 retry。comment-backed task 的 `resolved` / `not_actionable` 结果还必须带 `evidence`（例如 `replyUrl`、`checkedCommand`、`reasonCategory` 或 `rationale`），否则 launcher 会拒绝结果并保持 task 可重试，防止 PR comment 注入伪造完成信号。
 - 主 Agent 不直接处理、删除或手工编辑 task。只有在 listener 已停止、且需要人工维护运行时 JSON 时，才按 `doc/event-task-state-maintenance.md` 更新 `event_state.json` 的 handled baseline 并清理对应 task。
 - listener 每次写入前会重读并校验 runtime JSON；如果保存前发现外部写入，会重载并重放本轮 mutation，降低旧内存状态覆盖磁盘变更的风险。这不是运行中手工编辑接口，listener 运行期间不要并行改 JSON。
 - task 失败最多自动尝试 5 次；超过上限后变成 `dead`。`dead` 只在底层触发条件仍然存在时继续阻塞同类事件；如果触发条件消失，会在后续扫描中自动回收。

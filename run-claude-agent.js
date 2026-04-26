@@ -536,6 +536,17 @@ function cloneJson(value) {
   return value == null ? value : JSON.parse(JSON.stringify(value));
 }
 
+function buildActivityFingerprint(activity) {
+  return createHash("sha256").update(JSON.stringify({
+    stream: activity?.stream || null,
+    id: activity?.id != null ? String(activity.id) : null,
+    createdAt: activity?.createdAt || null,
+    updatedAt: activity?.updatedAt || null,
+    state: activity?.state || null,
+    body: activity?.body || "",
+  })).digest("hex");
+}
+
 function normalizeRuntimeRevision(value) {
   return typeof value === "string" && value.trim() ? value : null;
 }
@@ -614,6 +625,8 @@ function emptyCursor() {
     count: 0,
     lastId: null,
     lastCreatedAt: null,
+    lastUpdatedAt: null,
+    itemFingerprints: {},
   };
 }
 
@@ -622,10 +635,19 @@ function normalizeCursor(raw) {
     return emptyCursor();
   }
   const count = Number.isInteger(raw.count) && raw.count >= 0 ? raw.count : 0;
+  const itemFingerprints = raw.itemFingerprints && typeof raw.itemFingerprints === "object"
+    ? Object.fromEntries(
+      Object.entries(raw.itemFingerprints)
+        .filter(([key, value]) => key && typeof value === "string")
+        .map(([key, value]) => [String(key), value]),
+    )
+    : {};
   return {
     count,
     lastId: raw.lastId != null ? String(raw.lastId) : null,
     lastCreatedAt: raw.lastCreatedAt || null,
+    lastUpdatedAt: raw.lastUpdatedAt || null,
+    itemFingerprints,
   };
 }
 
@@ -642,6 +664,12 @@ function buildCursor(items) {
     count: items.length,
     lastId: last && last.id != null ? String(last.id) : null,
     lastCreatedAt: last && last.createdAt ? last.createdAt : null,
+    lastUpdatedAt: last && last.updatedAt ? last.updatedAt : null,
+    itemFingerprints: Object.fromEntries(
+      items
+        .filter((item) => item && item.id != null)
+        .map((item) => [String(item.id), buildActivityFingerprint(item)]),
+    ),
   };
 }
 
@@ -1083,6 +1111,10 @@ function buildSubagentPrompt(task) {
     status: "resolved",
     reason: "handled",
     summary: "Brief outcome summary",
+    evidence: {
+      checkedCommand: "gh pr view <number> --repo <owner>/<repo>",
+      rationale: "What concrete state was verified",
+    },
   })}`;
   return [
     `请处理 PR 事件：${task.prKey}`,
@@ -1105,6 +1137,7 @@ function buildSubagentPrompt(task) {
     "7. 任务/状态文件维护规则见 doc/event-task-state-maintenance.md。",
     "8. 这是 subagent 任务，不要手动编辑 event_state.json 或 event_task.json；完成后按 task result 协议输出结构化结果，由 launcher 推进 state、删除、block 或 retry 对应 task。",
     `9. Result nonce: ${task.resultNonce || "<legacy task without nonce>"}`,
+    "10. For comment-backed tasks, resolved/not_actionable results must include evidence with at least one of replyUrl, checkedCommand, reasonCategory, or rationale; otherwise the launcher rejects the result and keeps the task retryable.",
     "",
     "task result 协议：",
     "最后单独输出一行，不要放进代码块。status 必须是 resolved、blocked、needs_human、not_actionable 之一。",
@@ -1112,7 +1145,7 @@ function buildSubagentPrompt(task) {
     "- blocked：当前触发条件仍存在，但自动 agent 不应继续普通重试。",
     "- needs_human：需要 contributor、maintainer 或人工决策。",
     "- not_actionable：确认该事件不需要行动；状态型 task 仍必须由 launcher 验证触发条件已消失。",
-    "Optional fields for blocked/needs_human/not_actionable: actionability, blockOwner, blockCategory, unblockHint. Use actionability values such as needs_contributor_action, needs_maintainer_action, needs_human_decision, needs_infra_action, not_actionable, or unknown.",
+    "Optional fields for blocked/needs_human/not_actionable: actionability, blockOwner, blockCategory, unblockHint. Comment-backed resolved/not_actionable results also require evidence: { replyUrl, checkedCommand, reasonCategory, or rationale }. Use actionability values such as needs_contributor_action, needs_maintainer_action, needs_human_decision, needs_infra_action, not_actionable, or unknown.",
     "输出格式示例，保持 version/eventId/prKey/type/nonce 字段与本 task 一致，只改 status/reason/summary：",
     resultLine,
     "",
@@ -1125,6 +1158,7 @@ function createActivitySummary(activity) {
     stream: activity.stream,
     id: activity.id,
     createdAt: activity.createdAt,
+    updatedAt: activity.updatedAt || null,
     authorLogin: activity.authorLogin,
     authorType: activity.authorType,
     authorAssociation: activity.authorAssociation,
@@ -1150,17 +1184,54 @@ function collectItemsAfterCursor(items, rawCursor) {
   if (!Array.isArray(items) || items.length === 0) {
     return [];
   }
+  const combineActivities = (...groups) => {
+    const seen = new Set();
+    const combined = [];
+    for (const group of groups) {
+      for (const item of group) {
+        const key = item && item.id != null ? `${item.stream || ""}:${String(item.id)}` : null;
+        if (key && seen.has(key)) {
+          continue;
+        }
+        if (key) {
+          seen.add(key);
+        }
+        combined.push(item);
+      }
+    }
+    return combined.sort(compareActivityChronologically);
+  };
+  const changedItems = [];
+  for (const item of items) {
+    if (!item || item.id == null) {
+      continue;
+    }
+    const id = String(item.id);
+    const previousFingerprint = cursor.itemFingerprints[id];
+    if (previousFingerprint && previousFingerprint !== buildActivityFingerprint(item)) {
+      changedItems.push(item);
+    }
+  }
   if (cursor.lastId != null) {
     const cursorIndex = items.findIndex((item) => String(item.id) === cursor.lastId);
     if (cursorIndex >= 0) {
-      return items.slice(cursorIndex + 1);
+      return combineActivities(
+        changedItems.filter((item) => items.indexOf(item) <= cursorIndex),
+        items.slice(cursorIndex + 1),
+      );
     }
   }
   if (cursor.lastCreatedAt || cursor.lastId != null) {
-    return items.filter((item) => compareActivityToCursor(item, cursor) > 0);
+    return combineActivities(
+      changedItems,
+      items.filter((item) => compareActivityToCursor(item, cursor) > 0),
+    );
   }
   const start = Math.min(cursor.count, items.length);
-  return items.slice(start);
+  return combineActivities(
+    changedItems.filter((item) => items.indexOf(item) < start),
+    items.slice(start),
+  );
 }
 
 function collectNewActivities(snapshot, baseline, category = null) {
@@ -1519,6 +1590,9 @@ function buildTaskResultDetail(result) {
     reason: result.reason || "",
     summary: result.summary || "",
   };
+  if (result.evidence && typeof result.evidence === "object") {
+    detail.evidence = cloneJson(result.evidence);
+  }
   for (const key of ["actionability", "blockOwner", "blockCategory", "unblockHint"]) {
     if (result[key]) {
       detail[key] = result[key];
@@ -1557,6 +1631,33 @@ function buildBoundaryForTaskResult(task, snapshot) {
   return buildBoundaryFromSnapshot(snapshot);
 }
 
+function normalizeTaskResultEvidence(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+  const normalized = {};
+  for (const [key, raw] of Object.entries(value)) {
+    if (raw == null) {
+      continue;
+    }
+    if (typeof raw === "string" || typeof raw === "number" || typeof raw === "boolean") {
+      normalized[key] = String(raw).slice(0, 500);
+    }
+  }
+  return Object.keys(normalized).length > 0 ? normalized : null;
+}
+
+function hasCommentTaskResultEvidence(result) {
+  const evidence = normalizeTaskResultEvidence(result?.evidence);
+  if (!evidence) {
+    return false;
+  }
+  return ["replyUrl", "checkedCommand", "reasonCategory", "rationale"].some((key) => {
+    const value = evidence[key];
+    return typeof value === "string" && value.trim().length > 0;
+  });
+}
+
 function normalizeTaskResultPayload(payload) {
   return {
     version: 2,
@@ -1571,6 +1672,7 @@ function normalizeTaskResultPayload(payload) {
     blockOwner: normalizeTaskMetadataString(payload.blockOwner, 80),
     blockCategory: normalizeTaskMetadataString(payload.blockCategory, 80),
     unblockHint: normalizeTaskMetadataString(payload.unblockHint, 400),
+    evidence: normalizeTaskResultEvidence(payload.evidence),
   };
 }
 
@@ -1837,6 +1939,7 @@ function normalizeIssueComment(raw) {
     stream: "issue_comment",
     id: raw.id != null ? String(raw.id) : raw.node_id || raw.url || randomUUID(),
     createdAt: raw.created_at || raw.createdAt || null,
+    updatedAt: raw.updated_at || raw.updatedAt || raw.created_at || raw.createdAt || null,
     authorAssociation: raw.author_association || raw.authorAssociation || "NONE",
     authorLogin: raw.user?.login || null,
     authorType: raw.user?.type || null,
@@ -1851,6 +1954,7 @@ function normalizeReviewComment(raw) {
     stream: "review_comment",
     id: raw.id != null ? String(raw.id) : raw.node_id || raw.url || randomUUID(),
     createdAt: raw.created_at || raw.createdAt || null,
+    updatedAt: raw.updated_at || raw.updatedAt || raw.created_at || raw.createdAt || null,
     authorAssociation: raw.author_association || raw.authorAssociation || "NONE",
     authorLogin: raw.user?.login || null,
     authorType: raw.user?.type || null,
@@ -1865,6 +1969,7 @@ function normalizeReview(raw) {
     stream: "review",
     id: raw.id != null ? String(raw.id) : raw.node_id || raw.url || randomUUID(),
     createdAt: raw.submitted_at || raw.submittedAt || raw.created_at || raw.createdAt || null,
+    updatedAt: raw.submitted_at || raw.submittedAt || raw.updated_at || raw.updatedAt || raw.created_at || raw.createdAt || null,
     authorAssociation: raw.author_association || raw.authorAssociation || "NONE",
     authorLogin: raw.user?.login || null,
     authorType: raw.user?.type || null,
@@ -2501,6 +2606,7 @@ class EventListener {
     this.activeSubagents = new Map();
     this.terminalPrs = new Set();
     this._runtimeMutationQueue = Promise.resolve();
+    this.lastRefreshResult = null;
   }
 
   async load(options = {}) {
@@ -2597,18 +2703,40 @@ class EventListener {
 
   async saveAll() {
     const runtimeRevision = randomUUID();
-    await this.state.save(runtimeRevision);
-    await this.taskManager.save(runtimeRevision);
+    try {
+      await this.state.save(runtimeRevision);
+    } catch (error) {
+      this.actionLogger.writeLine(
+        `[${nowStamp()}] runtime_save_failed file=state revision=${runtimeRevision} err=${truncate(error.message || error, 300)}`,
+      );
+      throw error;
+    }
+    try {
+      await this.taskManager.save(runtimeRevision);
+    } catch (error) {
+      this.actionLogger.writeLine(
+        `[${nowStamp()}] runtime_save_failed file=task revision=${runtimeRevision} err=${truncate(error.message || error, 300)} repair="stop listener, inspect event_state.json and event_task.json revisions, restore a consistent pair or rerun strict refresh"`,
+      );
+      throw error;
+    }
   }
 
   async generateEventJson() {
     const lockAcquired = await this._acquireEventListenerLock();
     if (!lockAcquired) {
+      this.lastRefreshResult = {
+        ok: false,
+        searchFailed: false,
+        failedPrKeys: [],
+        scannedPrKeys: [],
+        skippedReason: "active_listener_lock",
+      };
       return false;
     }
     await this.load({ force: this.loaded });
-    await this._refreshJsonState();
-    return true;
+    const refreshResult = await this._refreshJsonState();
+    this.lastRefreshResult = refreshResult;
+    return refreshResult.ok;
   }
 
   async bootstrapRefresh() {
@@ -2618,7 +2746,9 @@ class EventListener {
   async start() {
     await this.load();
     this.enabled = true;
-    await this._dispatchRunnableTasks();
+    await this._dispatchRunnableTasks({
+      skipPrKeys: new Set(this.lastRefreshResult?.failedPrKeys || []),
+    });
     this._scheduleNext();
     this.actionLogger.writeLine(`[${nowStamp()}] event_listener_start interval=${this.intervalMs}ms`);
   }
@@ -2747,20 +2877,30 @@ class EventListener {
     if (generated === false) {
       return;
     }
-    await this._dispatchRunnableTasks();
+    await this._dispatchRunnableTasks({
+      skipPrKeys: new Set(this.lastRefreshResult?.failedPrKeys || []),
+    });
   }
 
   async _refreshJsonState() {
-    await this._withRuntimeMutation("refresh_json_state", async () => {
-      const logPrefix = `[${nowStamp()}] event_tick`;
-      let prList;
-      try {
-        prList = await this._fetchOpenPrList();
-      } catch (error) {
-        this.actionLogger.writeLine(`${logPrefix} search_failed=${truncate(error.message || error, 300)}`);
-        return null;
-      }
+    const logPrefix = `[${nowStamp()}] event_tick`;
+    let prList;
+    try {
+      prList = await this._fetchOpenPrList();
+    } catch (error) {
+      this.actionLogger.writeLine(`${logPrefix} search_failed=${truncate(error.message || error, 300)}`);
+      return {
+        ok: false,
+        searchFailed: true,
+        failedPrKeys: [],
+        scannedPrKeys: [],
+        skippedReason: "search_failed",
+      };
+    }
 
+    const failedPrKeys = [];
+    const scannedPrKeys = [];
+    await this._withRuntimeMutation("refresh_json_state", async () => {
       const openPrKeys = new Set(prList.map((pr) => pr.prKey));
       await this._cleanupTerminalPrs(openPrKeys);
 
@@ -2770,11 +2910,20 @@ class EventListener {
             timeoutMs: GH_TIMEOUT_MS,
           });
           await this._scanSnapshot(snapshot);
+          scannedPrKeys.push(pr.prKey);
         } catch (error) {
+          failedPrKeys.push(pr.prKey);
           this.actionLogger.writeLine(`${logPrefix} pr_scan_failed pr=${pr.prKey} err=${truncate(error.message || error, 300)}`);
         }
       }
     });
+    return {
+      ok: true,
+      searchFailed: false,
+      failedPrKeys,
+      scannedPrKeys,
+      skippedReason: null,
+    };
   }
 
   async _fetchOpenPrList() {
@@ -3060,10 +3209,11 @@ class EventListener {
     this.state.setObservedSnapshot(snapshot.prKey, snapshot);
   }
 
-  async _dispatchRunnableTasks() {
+  async _dispatchRunnableTasks(options = {}) {
     if (!this.config.enableTaskDispatch) {
       return;
     }
+    const skipPrKeys = options.skipPrKeys instanceof Set ? options.skipPrKeys : new Set(options.skipPrKeys || []);
 
     if (this._dispatching) {
       this._dispatchRequested = true;
@@ -3083,6 +3233,12 @@ class EventListener {
         for (const task of runnable) {
           if (this.activeSubagents.size >= MAX_PARALLEL_SUBAGENTS) {
             break;
+          }
+          if (skipPrKeys.has(task.prKey)) {
+            this.actionLogger.writeLine(
+              `[${nowStamp()}] event_dispatch_skipped pr=${task.prKey} task=${task.id} reason=refresh_failed`,
+            );
+            continue;
           }
           let dispatchTask = task;
           if (this._shouldRefreshBeforeDispatch(task)) {
@@ -3416,6 +3572,14 @@ class EventListener {
   }
 
   async _handleTaskResult(task, result) {
+    if (
+      COMMENT_TASK_TYPES.has(task.type)
+      && (result.status === "resolved" || result.status === "not_actionable")
+      && !hasCommentTaskResultEvidence(result)
+    ) {
+      await this._handleTaskFailure(task, "missing_comment_task_evidence");
+      return;
+    }
     if (result.status === "resolved") {
       await this._handleTaskSuccess(task);
       return;
@@ -3720,15 +3884,23 @@ async function refreshEventJsonOnce(options = {}, actionLogger = { writeLine() {
   let updated = false;
   try {
     updated = await listener.bootstrapRefresh();
+    const refreshResult = listener.lastRefreshResult || {};
+    if (options.strict === true && refreshResult.searchFailed) {
+      throw new Error("refresh failed: open PR search failed");
+    }
   } finally {
     if (ownsListener) {
       listener.stop();
     }
   }
+  const refreshResult = listener.lastRefreshResult || {};
   return {
     listener,
     updated,
-    skippedReason: updated ? null : "active_listener_lock",
+    skippedReason: updated ? null : (refreshResult.skippedReason || "active_listener_lock"),
+    searchFailed: refreshResult.searchFailed === true,
+    failedPrKeys: Array.isArray(refreshResult.failedPrKeys) ? [...refreshResult.failedPrKeys] : [],
+    scannedPrKeys: Array.isArray(refreshResult.scannedPrKeys) ? [...refreshResult.scannedPrKeys] : [],
   };
 }
 

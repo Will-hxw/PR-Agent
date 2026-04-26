@@ -18,6 +18,7 @@ const logger = {
 refreshEventJsonOnce({
   cwd: process.cwd(),
   eventNotificationEnabled: false,
+  strict: true,
 }, logger)
   .then((result) => {
     if (result.updated) {
