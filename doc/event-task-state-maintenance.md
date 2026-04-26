@@ -6,7 +6,7 @@
 
 - 人工编辑运行时 JSON 前，必须先停止正在运行的 event listener / launcher。
 - 不要在 listener 运行期间手工编辑 `event_task.json` 或 `event_state.json`；listener 保存前会检测磁盘变更并尝试重载重放，但这只是防 lost update 的保护，不是人工并行写入接口。
-- `update.sh` 只用于按启动路径刷新 JSON，不是人工删除或确认 task 的替代入口。
+- `update.sh` 只用于按启动路径刷新 JSON，不是人工删除或确认 task 的替代入口；如果 active listener lock 存在，它会 skipped，不代表已经刷新成功。
 - `event_state.json` 与 `event_task.json` 的 `runtimeRevision` 必须保持一致；人工编辑两个文件时不要改成不同 revision。
 - 如果 listener 无法停止，先不要编辑 JSON；应记录需要处理的 `task.id`、`prKey`、`type` 和最新 GitHub 状态，等 listener 停止后再维护。
 
@@ -23,6 +23,19 @@
 subagent 派发的任务不要手工编辑两个 JSON 文件。subagent 完成工作后输出带 `nonce` 的结构化 `task result`，launcher 只接受最终消息中的唯一 result 行，然后刷新 GitHub 状态，并按结果推进 state baseline、删除 task、block task 或进入 retry。
 
 只有 listener 已停止、且需要人工确认或解除异常 runtime 状态时，才需要人工维护 JSON。
+
+## 一次性刷新
+
+普通 `node run-claude-agent.js` 不刷新 `event_state.json` / `event_task.json`，也不会派发 PR event task。runtime JSON 只由以下入口刷新：
+
+- `node run-claude-agent.js --enable-event-listener` 的启动刷新和后续轮询。
+- `update.sh` 的一次性刷新。
+
+`update.sh` 复用启动刷新路径，但不启动 subagent 派发。结果语义如下：
+
+- `event JSON updated`，退出码 `0`：本次刷新完成。
+- `event JSON skipped: active listener lock`，退出码 `2`：已有 listener 正在持有 lock，本次没有刷新。
+- `event JSON update failed: ...`，退出码 `1`：刷新失败，需要按错误信息定位。
 
 ## 评论类 task 完成后如何更新
 
@@ -105,6 +118,19 @@ listener 停止后，人工清除已解决的状态型 task 前，应先用 GitH
 
 `READY_TO_MERGE` 是 notify-only，不应出现在 `event_task.json`。
 
+## revision mismatch 恢复
+
+`event_state.json` 与 `event_task.json` 的 `runtimeRevision` 不一致时，launcher 会拒绝加载并输出 state/task 文件路径、revision、mtime 和恢复提示。该错误通常说明两个 JSON 来自不同保存轮次，继续派发会造成 baseline 与 task 队列不一致。
+
+处理步骤：
+
+1. 停止 event listener / launcher，确认没有进程继续写入 runtime JSON。
+2. 记录错误信息中的两个文件路径、revision、mtime 和 size。
+3. 分别解析两个 JSON，确认哪一份是较新的可信状态；不要只改其中一个 `runtimeRevision` 来绕过检查。
+4. 如果有备份或版本快照，恢复同一轮次的 `event_state.json` 与 `event_task.json`。
+5. 如果必须人工修复，按本文档规则同步 baseline 和 task 队列后，再让两个文件使用同一个新的 `runtimeRevision`。
+6. 运行下方 JSON 解析校验后再重启 listener。
+
 ## 校验
 
 人工编辑后，至少运行 JSON 解析校验：
@@ -113,4 +139,4 @@ listener 停止后，人工清除已解决的状态型 task 前，应先用 GitH
 node -e "JSON.parse(require('fs').readFileSync('event_state.json','utf8')); JSON.parse(require('fs').readFileSync('event_task.json','utf8')); console.log('ok')"
 ```
 
-不要把 `.claude_agent_logs/`、`event_state.json` 或 `event_task.json` 混入贡献提交。
+不要把 `.claude_agent_logs/`、`event_state.json`、`event_task.json` 或 `event_state.json.*.tmp` / `event_task.json.*.tmp` 混入贡献提交。

@@ -1,5 +1,6 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
+const { spawn } = require("node:child_process");
 const { EventEmitter } = require("node:events");
 const fs = require("node:fs/promises");
 const os = require("node:os");
@@ -138,6 +139,49 @@ async function waitFor(predicate, timeoutMs = 1000) {
     await new Promise((resolve) => setTimeout(resolve, 5));
   }
   assert.ok(await predicate(), "condition was not met before timeout");
+}
+
+function runProcess(command, args, options = {}) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, args, {
+      cwd: options.cwd || path.join(__dirname, ".."),
+      env: options.env || process.env,
+      shell: false,
+      windowsHide: true,
+    });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk.toString("utf8");
+    });
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk.toString("utf8");
+    });
+    child.on("error", reject);
+    child.on("close", (code, signal) => {
+      resolve({ code, signal, stdout, stderr });
+    });
+  });
+}
+
+async function createFakeClaudeCommand(dir) {
+  if (process.platform === "win32") {
+    const commandPath = path.join(dir, "fake-claude.cmd");
+    await fs.writeFile(commandPath, "@echo off\r\nexit /b 0\r\n", "utf8");
+    return commandPath;
+  }
+  const commandPath = path.join(dir, "fake-claude.sh");
+  await fs.writeFile(commandPath, "#!/usr/bin/env sh\nexit 0\n", { encoding: "utf8", mode: 0o755 });
+  await fs.chmod(commandPath, 0o755);
+  return commandPath;
+}
+
+async function createAgentWorkspace() {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "pr-agent-main-"));
+  await fs.mkdir(path.join(dir, "doc"), { recursive: true });
+  await fs.writeFile(path.join(dir, "AGENT.md"), "# AGENT\n", "utf8");
+  await fs.writeFile(path.join(dir, "doc", "pr_rule.md"), "# Rules\n", "utf8");
+  return dir;
 }
 
 function createIsolatedListener(runtime, overrides = {}) {
@@ -399,6 +443,34 @@ test("getRunnable handles missing invalid and scheduled retry times conservative
   ];
 
   assert.deepStrictEqual(manager.getRunnable(nowMs).map((event) => event.id), ["missing", "past"]);
+});
+
+test("invalid pending nextRetryAt is normalized runnable with warning", async () => {
+  const runtime = await createRuntimeFiles();
+  try {
+    await agent.writeJsonFileAtomic(runtime.taskFile, {
+      schemaVersion: 1,
+      runtimeRevision: "retry-revision",
+      events: [
+        makeTask({
+          id: "invalid-retry",
+          prKey: "demo/repo#88",
+          nextRetryAt: "not-a-date",
+        }),
+      ],
+    });
+    const listener = createIsolatedListener(runtime);
+
+    await listener.load();
+
+    const task = listener.taskManager.getById("invalid-retry");
+    assert.ok(task);
+    assert.notEqual(task.nextRetryAt, "not-a-date");
+    assert.deepStrictEqual(listener.taskManager.getRunnable().map((event) => event.id), ["invalid-retry"]);
+    assert.ok(listener.actionLogger.lines.some((line) => line.includes("event_task_invalid_retry_normalized count=1")));
+  } finally {
+    await fs.rm(runtime.dir, { recursive: true, force: true });
+  }
 });
 
 test("normalizeBoundary validates snapshotUpdatedAt", () => {
@@ -823,11 +895,25 @@ test("atomic json writes target file and leaves no temp file behind", async () =
   }
 });
 
+test("runtime temp file patterns are gitignored", async () => {
+  const result = await runProcess("git", [
+    "check-ignore",
+    "-v",
+    "event_state.json.1.2.uuid.tmp",
+    "event_task.json.1.2.uuid.tmp",
+  ]);
+
+  assert.equal(result.code, 0);
+  assert.match(result.stdout, /event_state\.json\.\*\.tmp/);
+  assert.match(result.stdout, /event_task\.json\.\*\.tmp/);
+});
+
 test("startup and polling use the same JSON generation path", async () => {
   const listener = createListener();
   const calls = [];
   listener.generateEventJson = async () => {
     calls.push("generate");
+    return true;
   };
   listener._dispatchRunnableTasks = async () => {
     calls.push("dispatch");
@@ -862,6 +948,7 @@ test("standalone refresh uses bootstrap path without dispatch", async () => {
   const calls = [];
   listener.bootstrapRefresh = async () => {
     calls.push("bootstrap");
+    return true;
   };
   listener._dispatchRunnableTasks = async () => {
     calls.push("dispatch");
@@ -869,8 +956,73 @@ test("standalone refresh uses bootstrap path without dispatch", async () => {
 
   const refreshed = await agent.refreshEventJsonOnce({ listener }, createLogger());
 
-  assert.equal(refreshed, listener);
+  assert.equal(refreshed.listener, listener);
+  assert.equal(refreshed.updated, true);
+  assert.equal(refreshed.skippedReason, null);
   assert.deepStrictEqual(calls, ["bootstrap"]);
+});
+
+test("refreshEventJsonOnce reports skipped when lock is active", async () => {
+  const runtime = await createRuntimeFiles();
+  try {
+    const first = createIsolatedListener(runtime);
+    first._fetchOpenPrList = async () => [];
+    assert.equal(await first.generateEventJson(), true);
+
+    const second = createIsolatedListener(runtime);
+    second._fetchOpenPrList = async () => {
+      throw new Error("second listener should not scan while lock is active");
+    };
+    const result = await agent.refreshEventJsonOnce({ listener: second }, second.actionLogger);
+
+    assert.equal(result.listener, second);
+    assert.equal(result.updated, false);
+    assert.equal(result.skippedReason, "active_listener_lock");
+    assert.ok(second.actionLogger.lines.some((line) => line.includes("event_listener_lock_active")));
+    first.stop();
+  } finally {
+    await fs.rm(runtime.dir, { recursive: true, force: true });
+  }
+});
+
+test("update.sh exits skipped under active listener lock", async () => {
+  const result = await runProcess("bash", ["-lc", [
+    "set -e",
+    "mkdir -p .claude_agent_logs",
+    "trap 'rm -f .claude_agent_logs/event-listener.lock' EXIT",
+    "printf '{\"pid\":%s,\"createdAt\":\"2026-04-24T00:00:00.000Z\",\"cwd\":\"test\",\"command\":\"test\"}\\n' \"$$\" > .claude_agent_logs/event-listener.lock",
+    "bash update.sh",
+  ].join("\n")]);
+
+  assert.equal(result.code, 2);
+  assert.match(result.stderr, /event JSON skipped: active_listener_lock/);
+});
+
+test("main bootstrap without listener does not create undispatchable tasks", async () => {
+  const workspace = await createAgentWorkspace();
+  try {
+    const fakeClaude = await createFakeClaudeCommand(workspace);
+    const result = await runProcess(process.execPath, [
+      "run-claude-agent.js",
+      "--cwd",
+      workspace,
+      "--claude-command",
+      fakeClaude,
+      "--initial-delay-seconds",
+      "60",
+    ]);
+
+    assert.equal(result.code, 0, result.stderr || result.stdout);
+    const actionLogs = (await fs.readdir(path.join(workspace, ".claude_agent_logs")))
+      .filter((name) => name.startsWith("claude_actions_"));
+    assert.equal(actionLogs.length, 1);
+    const logText = await fs.readFile(path.join(workspace, ".claude_agent_logs", actionLogs[0]), "utf8");
+    assert.match(logText, /bootstrap_skipped reason=event_listener_disabled/);
+    assert.doesNotMatch(logText, /bootstrap_done/);
+    assert.doesNotMatch(logText, /event_listener_lock_acquired/);
+  } finally {
+    await fs.rm(workspace, { recursive: true, force: true });
+  }
 });
 
 test("generateEventJson uses injected fetchPrSnapshot", async () => {
@@ -1033,7 +1185,7 @@ test("non-default cwd still points prompt and runtime files at launcher root", a
   }
 });
 
-test("state and task runtime revision mismatch is rejected on load", async () => {
+test("revision mismatch includes recovery diagnostics", async () => {
   const runtime = await createRuntimeFiles();
   try {
     await agent.writeJsonFileAtomic(runtime.stateFile, {
@@ -1051,7 +1203,14 @@ test("state and task runtime revision mismatch is rejected on load", async () =>
 
     await assert.rejects(
       () => listener.load(),
-      /Runtime JSON revision mismatch: state=state-revision task=task-revision/,
+      (error) => {
+        assert.match(error.message, /Runtime JSON revision mismatch: state=state-revision task=task-revision/);
+        assert.match(error.message, /stateFile=/);
+        assert.match(error.message, /taskFile=/);
+        assert.match(error.message, /mtime=/);
+        assert.match(error.message, /Stop the listener before editing runtime JSON/);
+        return true;
+      },
     );
   } finally {
     await fs.rm(runtime.dir, { recursive: true, force: true });
@@ -1243,6 +1402,22 @@ test("own contributor comments do not create comment tasks", async () => {
   }));
 
   assert.equal(ownOnlyListener.taskManager.events.length, 0);
+});
+
+test("human login containing bot is not classified as bot when authorType is User", () => {
+  assert.equal(agent.classifyActivityCategory(makeActivity({
+    id: 503,
+    createdAt: "2026-04-24T00:04:00.000Z",
+    authorLogin: "robotics-maintainer",
+    authorType: "User",
+    authorAssociation: "OWNER",
+  })), "maintainer");
+  assert.equal(agent.classifyActivityCategory(makeActivity({
+    id: 504,
+    createdAt: "2026-04-24T00:05:00.000Z",
+    authorLogin: "review-bot[bot]",
+    authorType: "User",
+  })), "bot");
 });
 
 test("collectNewActivities detects replacement comments when count stays the same", () => {
@@ -1531,7 +1706,7 @@ test("review changes requested success advances maintainer review baselines only
   state.applyTaskSuccess({
     prKey: snapshot.prKey,
     type: "REVIEW_CHANGES_REQUESTED",
-    boundary: agent.buildBoundaryFromSnapshot(snapshot),
+    boundary: agent.buildBoundaryFromCategorySnapshot(snapshot, "maintainer"),
   }, snapshot);
 
   const entry = state.getOrInit(snapshot.prKey);
@@ -1541,6 +1716,68 @@ test("review changes requested success advances maintainer review baselines only
   assert.equal(entry.baseline.commentBaselines.maintainer.reviewCursor.lastId, "330");
   assert.equal(entry.baseline.commentBaselines.bot.issueCommentCursor.lastId, null);
   assert.equal(entry.baseline.commentBaselines.user.reviewCursor.lastId, null);
+});
+
+test("review task success preserves new maintainer comments after task boundary", async () => {
+  const originalSnapshot = makeSnapshot({
+    prKey: "demo/repo#16",
+    updatedAt: "2026-04-24T00:01:00.000Z",
+    reviewDecision: "CHANGES_REQUESTED",
+    issueComments: [
+      makeActivity({
+        id: 340,
+        createdAt: "2026-04-24T00:01:00.000Z",
+        authorLogin: "maintainer",
+        authorAssociation: "OWNER",
+        body: "Please change this.",
+      }),
+    ],
+    reviews: [
+      makeActivity({
+        stream: "review",
+        id: 341,
+        createdAt: "2026-04-24T00:01:30.000Z",
+        authorLogin: "maintainer",
+        authorAssociation: "OWNER",
+        body: "changes requested",
+        state: "CHANGES_REQUESTED",
+      }),
+    ],
+  });
+  const refreshedSnapshot = makeSnapshot({
+    prKey: originalSnapshot.prKey,
+    updatedAt: "2026-04-24T00:03:00.000Z",
+    reviewDecision: "APPROVED",
+    issueComments: [
+      ...originalSnapshot.issueComments,
+      makeActivity({
+        id: 342,
+        createdAt: "2026-04-24T00:02:00.000Z",
+        authorLogin: "maintainer",
+        authorAssociation: "OWNER",
+        body: "One more follow-up.",
+      }),
+    ],
+    reviews: originalSnapshot.reviews,
+  });
+  const listener = createListener();
+  listener.saveAll = async () => {};
+  const task = listener.taskManager.add(
+    originalSnapshot.prKey,
+    "REVIEW_CHANGES_REQUESTED",
+    agent.TASK_EVENT_SEVERITY.REVIEW_CHANGES_REQUESTED,
+    { snapshotSummary: "old review task" },
+    agent.buildBoundaryFromCategorySnapshot(originalSnapshot, "maintainer"),
+  );
+
+  await listener._completeTaskSuccess(task, refreshedSnapshot);
+
+  const tasks = listener.taskManager.events;
+  assert.equal(tasks.length, 1);
+  assert.equal(tasks[0].type, "MAINTAINER_COMMENT");
+  assert.deepStrictEqual(tasks[0].details.activities.map((activity) => activity.id), ["342"]);
+  const entry = listener.state.getOrInit(originalSnapshot.prKey);
+  assert.equal(entry.baseline.commentBaselines.maintainer.issueCommentCursor.lastId, "340");
 });
 
 test("baseline snapshots preserve CI check details", () => {

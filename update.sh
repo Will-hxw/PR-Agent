@@ -19,8 +19,13 @@ refreshEventJsonOnce({
   cwd: process.cwd(),
   eventNotificationEnabled: false,
 }, logger)
-  .then(() => {
-    process.stdout.write("event JSON updated\n");
+  .then((result) => {
+    if (result.updated) {
+      process.stdout.write("event JSON updated\n");
+      return;
+    }
+    process.stderr.write(`event JSON skipped: ${result.skippedReason || "unknown"}\n`);
+    process.exitCode = 2;
   })
   .catch((error) => {
     process.stderr.write(`event JSON update failed: ${error.message || error}\n`);

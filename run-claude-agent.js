@@ -119,7 +119,7 @@ function buildDefaultPrompt() {
   return [
     `请用 JSON 解析工具读取 launcher 根目录下的运行时状态文件：${STATE_FILE} 和 ${TASK_FILE}，了解当前 PR 状态和未完成任务。`,
     "task-backed 事件由 launcher/subagent claim 并处理；主 Agent 不要直接处理、删除或手工编辑 event_task.json / event_state.json 中的 task。",
-    "如果必须人工维护运行时 JSON，先停止 event listener，再按 doc/event-task-state-maintenance.md 操作，避免运行中的 listener 覆盖手工更新。",
+    "如果必须人工维护运行时 JSON，按 doc/event-task-state-maintenance.md 操作。",
     "请同时维护本仓库的 git 状态；不要在本仓库创建贡献分支，但可以在 candidates/ 中管理具体目标项目的 git。",
     "请遵守同目录下的 AGENT.md 与 doc/pr_rule.md。",
   ].join("\n");
@@ -540,13 +540,39 @@ function normalizeRuntimeRevision(value) {
   return typeof value === "string" && value.trim() ? value : null;
 }
 
-function assertRuntimeRevisionCompatible(stateRevision, taskRevision) {
+async function fileStatSummary(filePath) {
+  try {
+    const stat = await fsPromises.stat(filePath);
+    return `path=${filePath} mtime=${stat.mtime.toISOString()} size=${stat.size}`;
+  } catch (error) {
+    if (error.code === "ENOENT") {
+      return `path=${filePath} missing`;
+    }
+    return `path=${filePath} stat_error=${error.message}`;
+  }
+}
+
+function buildRuntimeRevisionMismatchMessage(stateRevision, taskRevision, stateFile, taskFile, stateStat, taskStat) {
   const normalizedStateRevision = normalizeRuntimeRevision(stateRevision);
   const normalizedTaskRevision = normalizeRuntimeRevision(taskRevision);
   if (!normalizedStateRevision || !normalizedTaskRevision || normalizedStateRevision === normalizedTaskRevision) {
-    return;
+    return null;
   }
-  throw new Error(`Runtime JSON revision mismatch: state=${normalizedStateRevision} task=${normalizedTaskRevision}`);
+  return [
+    `Runtime JSON revision mismatch: state=${normalizedStateRevision} task=${normalizedTaskRevision}`,
+    `stateFile=${stateFile}`,
+    `taskFile=${taskFile}`,
+    `stateStat=${stateStat || "unknown"}`,
+    `taskStat=${taskStat || "unknown"}`,
+    "Stop the listener before editing runtime JSON, inspect both files, keep the newer consistent state/task pair or restore both files from backup, then make runtimeRevision match before restarting.",
+  ].join(" | ");
+}
+
+function assertRuntimeRevisionCompatible(stateRevision, taskRevision) {
+  const message = buildRuntimeRevisionMismatchMessage(stateRevision, taskRevision, STATE_FILE, TASK_FILE);
+  if (message) {
+    throw new Error(message);
+  }
 }
 
 function isValidPid(value) {
@@ -854,6 +880,12 @@ function normalizeTaskRecord(raw) {
   ) {
     status = TASK_STATUS.PENDING;
   }
+  const retry = parseRetryTimestampMs(raw);
+  const normalizedNextRetryAt = status === TASK_STATUS.DEAD || status === TASK_STATUS.BLOCKED
+    ? null
+    : retry.state === "valid"
+      ? new Date(retry.value).toISOString()
+      : now;
 
   return {
     id: raw.id || randomUUID(),
@@ -864,7 +896,7 @@ function normalizeTaskRecord(raw) {
     status,
     attemptCount: Number.isInteger(raw.attemptCount) && raw.attemptCount >= 0 ? raw.attemptCount : 0,
     lastAttemptAt: raw.lastAttemptAt || null,
-    nextRetryAt: status === TASK_STATUS.DEAD || status === TASK_STATUS.BLOCKED ? null : (raw.nextRetryAt || now),
+    nextRetryAt: normalizedNextRetryAt,
     lastError: raw.lastError || null,
     claimedAt: normalizeTaskTimestamp(raw.claimedAt),
     runningPid: normalizePid(raw.runningPid),
@@ -924,7 +956,7 @@ function normalizeEventDetailValue(value) {
 function isBotLogin(login) {
   if (!login) return false;
   const normalized = String(login).toLowerCase();
-  return normalized.endsWith("[bot]") || normalized.includes("bot");
+  return normalized.endsWith("[bot]");
 }
 
 function isBotActor(activity) {
@@ -1513,6 +1545,9 @@ function buildBlockedTaskDetailsFromResult(task, result, snapshot = null) {
 function buildBoundaryForTaskResult(task, snapshot) {
   if (!snapshot) {
     return task.boundary;
+  }
+  if (task.type === "REVIEW_CHANGES_REQUESTED") {
+    return buildBoundaryFromCategorySnapshot(snapshot, "maintainer");
   }
   const category = commentCategoryForTaskType(task.type);
   if (category) {
@@ -2130,9 +2165,7 @@ class EventState {
 
     if (task.type === "REVIEW_CHANGES_REQUESTED") {
       entry.baseline.reviewDecision = snapshot.reviewDecision;
-      entry.baseline.commentBaselines.maintainer = normalizeCommentCursorSet(
-        buildBoundaryFromCategorySnapshot(snapshot, "maintainer"),
-      );
+      entry.baseline.commentBaselines.maintainer = normalizeCommentCursorSet(boundary);
     }
 
     if (MERGE_TASK_TYPES.has(task.type)) {
@@ -2166,14 +2199,27 @@ class EventTaskManager {
     this.filePath = options.filePath || TASK_FILE;
     this.events = [];
     this.revision = null;
+    this.invalidRetryCount = 0;
   }
 
   async load() {
     try {
       const raw = await fsPromises.readFile(this.filePath, "utf8");
       const obj = JSON.parse(raw);
+      this.invalidRetryCount = 0;
+      const rawEvents = Array.isArray(obj.events) ? obj.events : [];
+      for (const event of rawEvents) {
+        const status = String(event?.status || "").toLowerCase();
+        if (
+          status === TASK_STATUS.PENDING
+          && Object.prototype.hasOwnProperty.call(event, "nextRetryAt")
+          && parseRetryTimestampMs(event).state === "invalid"
+        ) {
+          this.invalidRetryCount += 1;
+        }
+      }
       this.events = Array.isArray(obj.events)
-        ? obj.events.map(normalizeTaskRecord).filter(Boolean)
+        ? rawEvents.map(normalizeTaskRecord).filter(Boolean)
         : [];
       this.revision = normalizeRuntimeRevision(obj.runtimeRevision);
     } catch (error) {
@@ -2182,6 +2228,7 @@ class EventTaskManager {
       }
       this.events = [];
       this.revision = null;
+      this.invalidRetryCount = 0;
     }
   }
 
@@ -2478,7 +2525,22 @@ class EventListener {
   async _loadRuntimeFromDisk(options = {}) {
     await this.state.load();
     await this.taskManager.load();
-    assertRuntimeRevisionCompatible(this.state.revision, this.taskManager.revision);
+    const revisionMismatch = buildRuntimeRevisionMismatchMessage(
+      this.state.revision,
+      this.taskManager.revision,
+      this.state.filePath,
+      this.taskManager.filePath,
+      await fileStatSummary(this.state.filePath),
+      await fileStatSummary(this.taskManager.filePath),
+    );
+    if (revisionMismatch) {
+      throw new Error(revisionMismatch);
+    }
+    if (this.taskManager.invalidRetryCount > 0) {
+      this.actionLogger.writeLine(
+        `[${nowStamp()}] event_task_invalid_retry_normalized count=${this.taskManager.invalidRetryCount}`,
+      );
+    }
     const resetCount = options.recoverRunning ? this.taskManager.resetRunningTasks() : 0;
     this.loaded = true;
     return { resetCount };
@@ -2549,7 +2611,7 @@ class EventListener {
   }
 
   async bootstrapRefresh() {
-    await this.generateEventJson();
+    return this.generateEventJson();
   }
 
   async start() {
@@ -2808,7 +2870,7 @@ class EventListener {
       candidateTasks.set("REVIEW_CHANGES_REQUESTED", {
         type: "REVIEW_CHANGES_REQUESTED",
         severity: TASK_EVENT_SEVERITY.REVIEW_CHANGES_REQUESTED,
-        boundary: fullBoundary,
+        boundary: buildBoundaryFromCategorySnapshot(snapshot, "maintainer"),
         details: buildStateBackedTaskDetails("REVIEW_CHANGES_REQUESTED", snapshot),
         actionability: classifyStateBackedActionability("REVIEW_CHANGES_REQUESTED", snapshot),
       });
@@ -3654,14 +3716,19 @@ async function refreshEventJsonOnce(options = {}, actionLogger = { writeLine() {
     readyToMergeReviewMode: options.readyToMergeReviewMode || DEFAULTS.readyToMergeReviewMode,
   }, actionLogger);
 
+  let updated = false;
   try {
-    await listener.bootstrapRefresh();
+    updated = await listener.bootstrapRefresh();
   } finally {
     if (ownsListener) {
       listener.stop();
     }
   }
-  return listener;
+  return {
+    listener,
+    updated,
+    skippedReason: updated ? null : "active_listener_lock",
+  };
 }
 
 function getNotifier() {
@@ -3804,11 +3871,14 @@ async function main() {
     enableTaskDispatch: config.enableEventListener,
     readyToMergeReviewMode: config.readyToMergeReviewMode,
   }, actionLogger);
-  if (config.enableEventListener || CONTRIBUTOR_LOGIN) {
-    await refreshEventJsonOnce({ listener: eventListener }, actionLogger);
+  if (config.enableEventListener) {
+    const refreshResult = await refreshEventJsonOnce({ listener: eventListener }, actionLogger);
+    if (!refreshResult.updated) {
+      throw new Error(`Event listener bootstrap skipped: ${refreshResult.skippedReason || "unknown"}`);
+    }
     actionLogger.writeLine(`[${nowStamp()}] bootstrap_done`);
   } else {
-    actionLogger.writeLine(`[${nowStamp()}] bootstrap_skipped reason=missing_contributor_login`);
+    actionLogger.writeLine(`[${nowStamp()}] bootstrap_skipped reason=event_listener_disabled`);
   }
 
   const commandString = [

@@ -110,6 +110,8 @@ node run-claude-agent.js --enable-event-listener
 node run-claude-agent.js
 ```
 
+最简启动只启动主 Claude 会话，不刷新 `event_state.json` / `event_task.json`，也不会派发 PR event task。需要刷新 PR runtime JSON 时，使用 event listener 或单独运行 `update.sh`。
+
 推荐启动事件监听；PR review 和 CI 检查统一通过 event listener 处理：
 ```bash
 node run-claude-agent.js \
@@ -194,6 +196,8 @@ node run-claude-agent.js \
 |---|---|---|
 | Event listener | `--enable-event-listener` | 轮询 open PR，发现 CI、Review、评论、merge 状态变化 |
 
+也可以运行 `update.sh` 做一次性 runtime JSON 刷新；它复用 event listener 启动刷新路径，但不启动 subagent 派发。若已有 listener 持有 active lock，`update.sh` 会输出 `event JSON skipped: active listener lock` 并以退出码 `2` 结束。
+
 事件模型分为两类：
 
 - task-backed：`CI_FAILURE`、`REVIEW_CHANGES_REQUESTED`、`MAINTAINER_COMMENT`、`BOT_COMMENT`、`NEW_COMMENT`、`NEEDS_REBASE`
@@ -203,11 +207,12 @@ node run-claude-agent.js \
 
 事件监听的硬规则：
 
-- 启动时和每次轮询必须调用同一个 `generateEventJson()` 入口生成 `event_state.json` / `event_task.json`；subagent 派发只能发生在该入口完成并保存之后，启动刷新产生的 runnable task 也由 launcher/subagent claim，不交给主 Agent 手工处理。
+- 只有启用 `--enable-event-listener` 时，启动阶段才会调用 `generateEventJson()` 刷新 `event_state.json` / `event_task.json`；普通 `node run-claude-agent.js` 不刷新 PR event JSON，不生成无人派发的 task。
+- event listener 启动刷新、每次轮询和 `update.sh` 必须调用同一个 `generateEventJson()` 入口；subagent 派发只能发生在该入口完成并保存之后，启动刷新产生的 runnable task 也由 launcher/subagent claim，不交给主 Agent 手工处理。
 - 只要 `event_task.json` 中仍存在同 `prKey + type` 的 task，就视为去重命中，不会重复建 task。
 - task 成功后直接从 `event_task.json` 删除，不保留 handled 历史项；subagent 完成时输出带 `nonce` 的结构化 `task result`，由 launcher 自动删除、block 或 retry。
 - 主 Agent 不直接处理、删除或手工编辑 task。只有在 listener 已停止、且需要人工维护运行时 JSON 时，才按 `doc/event-task-state-maintenance.md` 更新 `event_state.json` 的 handled baseline 并清理对应 task。
-- listener 每次写入前会重读并校验 runtime JSON；如果保存前发现外部写入，会重载并重放本轮 mutation，避免用旧内存状态覆盖磁盘变更。
+- listener 每次写入前会重读并校验 runtime JSON；如果保存前发现外部写入，会重载并重放本轮 mutation，降低旧内存状态覆盖磁盘变更的风险。这不是运行中手工编辑接口，listener 运行期间不要并行改 JSON。
 - task 失败最多自动尝试 5 次；超过上限后变成 `dead`。`dead` 只在底层触发条件仍然存在时继续阻塞同类事件；如果触发条件消失，会在后续扫描中自动回收。
 - `CI_FAILURE`、`REVIEW_CHANGES_REQUESTED`、`NEEDS_REBASE` 这类状态型 task 只有在 GitHub 最新状态里的触发条件消失后才允许清除；如果 subagent 报告 `resolved` 但触发条件仍存在，应进入 `blocked`，如果报告 `blocked` / `needs_human`，launcher 直接保留为 `blocked`。
 - 状态型 task 在扫描和失败重试前会先做 actionability 分类：明确需要 contributor、maintainer、人类决策或基础设施处理的任务直接进入 `blocked`，只有 agent 可行动或无法确定的任务才会进入自动派发。
@@ -236,7 +241,7 @@ node run-claude-agent.js \
 <repo-root>/event_task.json
 ```
 
-这些文件是本地运行状态，已由 `.gitignore` 忽略。两者会写入同一个 `runtimeRevision`；如果两个文件的 revision 不一致，launcher 会拒绝加载，避免使用不同轮次的 state/task 组合继续派发。
+这些文件是本地运行状态，已由 `.gitignore` 忽略；atomic write 残留的 `event_state.json.*.tmp` / `event_task.json.*.tmp` 也会被忽略。两者会写入同一个 `runtimeRevision`；如果两个文件的 revision 不一致，launcher 会拒绝加载并输出两个文件路径、revision、mtime 和恢复提示，避免使用不同轮次的 state/task 组合继续派发。恢复步骤见 `doc/event-task-state-maintenance.md`。
 
 ### `event_task.json`
 

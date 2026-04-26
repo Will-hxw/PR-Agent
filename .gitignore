@@ -2,6 +2,8 @@
 agent.config.json
 event_state.json
 event_task.json
+event_state.json.*.tmp
+event_task.json.*.tmp
 candidates/*
 .playwright-mcp/
 node_modules/
