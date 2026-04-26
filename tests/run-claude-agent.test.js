@@ -500,6 +500,42 @@ test("invalid pending nextRetryAt is normalized runnable with warning", async ()
   }
 });
 
+test("invalid blocked and dead nextRetryAt stays non-runnable without warning", async () => {
+  const runtime = await createRuntimeFiles();
+  try {
+    await agent.writeJsonFileAtomic(runtime.taskFile, {
+      schemaVersion: 1,
+      runtimeRevision: "retry-terminal-revision",
+      events: [
+        makeTask({
+          id: "blocked-invalid-retry",
+          prKey: "demo/repo#89",
+          status: agent.TASK_STATUS.BLOCKED,
+          nextRetryAt: "not-a-date",
+        }),
+        makeTask({
+          id: "dead-invalid-retry",
+          prKey: "demo/repo#90",
+          status: agent.TASK_STATUS.DEAD,
+          nextRetryAt: "not-a-date",
+        }),
+      ],
+    });
+    const listener = createIsolatedListener(runtime);
+
+    await listener.load();
+
+    const blocked = listener.taskManager.getById("blocked-invalid-retry");
+    const dead = listener.taskManager.getById("dead-invalid-retry");
+    assert.equal(blocked.nextRetryAt, null);
+    assert.equal(dead.nextRetryAt, null);
+    assert.deepStrictEqual(listener.taskManager.getRunnable(), []);
+    assert.equal(listener.actionLogger.lines.some((line) => line.includes("event_task_invalid_retry_normalized")), false);
+  } finally {
+    await fs.rm(runtime.dir, { recursive: true, force: true });
+  }
+});
+
 test("normalizeBoundary validates snapshotUpdatedAt", () => {
   assert.equal(agent.normalizeBoundary({
     snapshotUpdatedAt: "2026-04-24T00:10:00.000Z",
