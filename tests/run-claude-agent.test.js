@@ -907,6 +907,83 @@ test("ready to merge is notify-only and does not create a task", async () => {
   assert.equal(listener.actionLogger.lines.some((line) => line.includes("type=READY_TO_MERGE")), true);
 });
 
+test("ready to merge keeps requiring approval by default", async () => {
+  const snapshot = makeSnapshot({
+    prKey: "demo/repo#80",
+    reviewDecision: null,
+    statusCheckState: "SUCCESS",
+    mergeable: "MERGEABLE",
+    unresolvedReviewThreadCount: 0,
+  });
+
+  assert.equal(agent.isReadyToMergeFromRaw(snapshot), false);
+
+  const listener = createListener();
+  await listener._scanSnapshot(snapshot);
+
+  assert.equal(listener.taskManager.events.length, 0);
+  assert.equal(listener.actionLogger.lines.some((line) => line.includes("type=READY_TO_MERGE")), false);
+});
+
+test("ready to merge can allow repositories without required review", async () => {
+  const snapshot = makeSnapshot({
+    prKey: "demo/repo#81",
+    reviewDecision: null,
+    statusCheckState: "SUCCESS",
+    mergeable: "MERGEABLE",
+    unresolvedReviewThreadCount: 0,
+  });
+
+  assert.equal(agent.isReadyToMergeFromRaw(snapshot, {
+    readyToMergeReviewMode: "allow-no-review-required",
+  }), true);
+
+  const listener = createListener({
+    readyToMergeReviewMode: "allow-no-review-required",
+  });
+  await listener._scanSnapshot(snapshot);
+
+  assert.equal(listener.taskManager.events.length, 0);
+  assert.equal(listener.actionLogger.lines.some((line) => line.includes("type=READY_TO_MERGE")), true);
+});
+
+test("ready to merge no-review mode does not bypass explicit blockers", () => {
+  const options = { readyToMergeReviewMode: "allow-no-review-required" };
+  const ready = {
+    reviewDecision: null,
+    statusCheckState: "SUCCESS",
+    mergeable: "MERGEABLE",
+    unresolvedReviewThreadCount: 0,
+  };
+
+  assert.equal(agent.isReadyToMergeFromRaw(makeSnapshot({ ...ready, reviewDecision: "CHANGES_REQUESTED" }), options), false);
+  assert.equal(agent.isReadyToMergeFromRaw(makeSnapshot({ ...ready, reviewDecision: "REVIEW_REQUIRED" }), options), false);
+  assert.equal(agent.isReadyToMergeFromRaw({ ...makeSnapshot(ready), reviewDecision: undefined }, options), false);
+  assert.equal(agent.isReadyToMergeFromRaw(makeSnapshot({ ...ready, isDraft: true }), options), false);
+  assert.equal(agent.isReadyToMergeFromRaw(makeSnapshot({ ...ready, statusCheckState: "PENDING" }), options), false);
+  assert.equal(agent.isReadyToMergeFromRaw(makeSnapshot({ ...ready, mergeable: "CONFLICTING" }), options), false);
+  assert.equal(agent.isReadyToMergeFromRaw(makeSnapshot({ ...ready, unresolvedReviewThreadCount: 1 }), options), false);
+});
+
+test("ready to merge no-review mode does not repeat unchanged notification", async () => {
+  const listener = createListener({
+    readyToMergeReviewMode: "allow-no-review-required",
+  });
+  const snapshot = makeSnapshot({
+    prKey: "demo/repo#82",
+    reviewDecision: null,
+    statusCheckState: "SUCCESS",
+    mergeable: "MERGEABLE",
+    unresolvedReviewThreadCount: 0,
+  });
+
+  await listener._scanSnapshot(snapshot);
+  await listener._scanSnapshot(snapshot);
+
+  const readyLines = listener.actionLogger.lines.filter((line) => line.includes("type=READY_TO_MERGE"));
+  assert.equal(readyLines.length, 1);
+});
+
 test("mixed comment batch is split into maintainer bot and user tasks", async () => {
   const listener = createListener();
   const snapshot = makeSnapshot({

@@ -152,7 +152,7 @@ gh api repos/<owner>/<repo>/pulls/<number>/reviews
 
 - CI 是否失败、挂起或需要重跑。
 - 是否有维护者、人类 reviewer、bot 的新评论。
-- `reviewDecision` 是否变为 `CHANGES_REQUESTED` 或 `APPROVED`。
+- `reviewDecision` 是否变为 `CHANGES_REQUESTED`、`APPROVED`，或在无强制 review 仓库中保持 `null` 但已技术可合并。
 - `mergeStateStatus` 是否变为 `BEHIND`、`BLOCKED`、`DIRTY`。
 - 本地记录是否需要更新。
 
@@ -365,6 +365,7 @@ PR 提交后，工作没有结束。
 - 目前 task-backed 事件包括：`CI_FAILURE`、`REVIEW_CHANGES_REQUESTED`、`MAINTAINER_COMMENT`、`BOT_COMMENT`、`NEW_COMMENT`、`NEEDS_REBASE`。
 - 启动时和每次轮询必须调用同一个 `generateEventJson()` 入口生成 `event_state.json` / `event_task.json`；subagent 派发只能发生在该入口完成并保存之后，启动刷新产生的 runnable task 也由 launcher/subagent claim。
 - `CI_PASSED`、`REVIEW_APPROVED`、`READY_TO_MERGE` 只通知，不写 task。
+- `READY_TO_MERGE` 默认要求 `reviewDecision=APPROVED`。若 `agent.config.json` 的 `readyToMergeReviewMode` 或 CLI 参数 `--ready-to-merge-review-mode` 设置为 `allow-no-review-required`，则 `reviewDecision=null` 且 CI 成功、可合并、无 unresolved review threads 的 PR 也可触发通知；`CHANGES_REQUESTED` 和 `REVIEW_REQUIRED` 仍不会触发。
 - 去重语义是“同 `prKey + type` 的 task 仍存在时不重复建 task”，不是全局唯一。
 - task 成功后会直接从 `event_task.json` 删除：subagent 完成时输出结构化 `task result`，由 launcher 自动删除、block 或 retry；失败会重试，达到上限后进入 `dead`。
 - 主代理不直接处理、删除或手工编辑 task。只有在 listener 已停止、且需要人工维护运行时 JSON 时，才按 `doc/event-task-state-maintenance.md` 更新 `event_state.json` 的 handled baseline 并清理对应 task；只删除 `event_task.json` 不代表事件已处理，下一次扫描可能重新生成同类 task。

@@ -78,15 +78,20 @@ Copy-Item agent.config.example.json agent.config.json
 
 ```json
 {
-  "contributorLogin": "your-github-login"
+  "contributorLogin": "your-github-login",
+  "readyToMergeReviewMode": "require-approval"
 }
 ```
+
+`readyToMergeReviewMode` 默认是 `require-approval`。如果目标仓库没有强制 review approval，可改为 `allow-no-review-required`，让 `reviewDecision=null` 且技术上可合并的 PR 也触发 `READY_TO_MERGE` 通知。
 
 也可以不创建本地配置文件，改用环境变量：
 
 ```bash
 PR_AGENT_CONTRIBUTOR_LOGIN=your-github-login node run-claude-agent.js --enable-event-listener
 ```
+
+可选设置 `PR_AGENT_READY_TO_MERGE_REVIEW_MODE=allow-no-review-required`，效果等同于 `readyToMergeReviewMode`。
 
 PowerShell：
 
@@ -177,6 +182,7 @@ node run-claude-agent.js \
 | `--no-event-notification` | - | 关闭系统通知 |
 | `--event-subagent` | `true` | task-backed 事件使用子任务处理 |
 | `--no-event-subagent` | - | 禁用 subagent；与 `--enable-event-listener` 冲突并直接报错退出 |
+| `--ready-to-merge-review-mode` | `require-approval` | `READY_TO_MERGE` 的 review 判定模式；可设为 `allow-no-review-required` 覆盖无强制 review 的仓库 |
 
 ---
 
@@ -192,6 +198,8 @@ node run-claude-agent.js \
 
 - task-backed：`CI_FAILURE`、`REVIEW_CHANGES_REQUESTED`、`MAINTAINER_COMMENT`、`BOT_COMMENT`、`NEW_COMMENT`、`NEEDS_REBASE`
 - notify-only：`CI_PASSED`、`REVIEW_APPROVED`、`READY_TO_MERGE`
+
+`READY_TO_MERGE` 默认要求 `reviewDecision=APPROVED`，以保持既有行为。没有强制 review 的仓库如需在 `reviewDecision=null` 且 CI 成功、可合并、无 unresolved review threads 时也发出 ready 通知，可设置 `readyToMergeReviewMode: "allow-no-review-required"` 或启动参数 `--ready-to-merge-review-mode allow-no-review-required`。该模式不会放行 `CHANGES_REQUESTED` 或 `REVIEW_REQUIRED`。
 
 事件监听的硬规则：
 

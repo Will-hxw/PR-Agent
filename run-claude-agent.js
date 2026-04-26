@@ -14,9 +14,14 @@ const STATE_FILE = path.join(ROOT_DIR, "event_state.json");
 const TASK_FILE = path.join(ROOT_DIR, "event_task.json");
 const CONFIG_FILE = path.join(ROOT_DIR, "agent.config.json");
 const CONFIG_EXAMPLE_FILE = path.join(ROOT_DIR, "agent.config.example.json");
+const RUNTIME_JSON_SCHEMA_VERSION = 1;
+const DEFAULT_READY_TO_MERGE_REVIEW_MODE = "require-approval";
+const READY_TO_MERGE_REVIEW_MODES = new Set([
+  DEFAULT_READY_TO_MERGE_REVIEW_MODE,
+  "allow-no-review-required",
+]);
 const AGENT_CONFIG = loadAgentConfig();
 const CONTRIBUTOR_LOGIN = AGENT_CONFIG.contributorLogin;
-const RUNTIME_JSON_SCHEMA_VERSION = 1;
 
 const DEFAULTS = {
   cwd: ROOT_DIR,
@@ -34,6 +39,7 @@ const DEFAULTS = {
   eventPollIntervalMs: 3600000,
   eventNotificationEnabled: true,
   eventSubagentEnabled: true,
+  readyToMergeReviewMode: AGENT_CONFIG.readyToMergeReviewMode || DEFAULT_READY_TO_MERGE_REVIEW_MODE,
 };
 
 const TASK_RESULT_PREFIX = "__EVENT_RESULT__ ";
@@ -127,15 +133,37 @@ function normalizeConfiguredLogin(value) {
   return login;
 }
 
+function normalizeReadyToMergeReviewMode(value, source = "readyToMergeReviewMode") {
+  const mode = String(value || "").trim();
+  if (!mode) {
+    return "";
+  }
+  if (!READY_TO_MERGE_REVIEW_MODES.has(mode)) {
+    throw new Error(
+      `Invalid ${source}: ${mode}. Expected one of: ${[...READY_TO_MERGE_REVIEW_MODES].join(", ")}`,
+    );
+  }
+  return mode;
+}
+
 function loadAgentConfig() {
   const config = {
     contributorLogin: normalizeConfiguredLogin(process.env.PR_AGENT_CONTRIBUTOR_LOGIN),
+    readyToMergeReviewMode: normalizeReadyToMergeReviewMode(
+      process.env.PR_AGENT_READY_TO_MERGE_REVIEW_MODE,
+      "PR_AGENT_READY_TO_MERGE_REVIEW_MODE",
+    ),
   };
 
-  if (!config.contributorLogin && fs.existsSync(CONFIG_FILE)) {
+  if (fs.existsSync(CONFIG_FILE)) {
     try {
       const localConfig = JSON.parse(fs.readFileSync(CONFIG_FILE, "utf8"));
-      config.contributorLogin = normalizeConfiguredLogin(localConfig.contributorLogin);
+      if (!config.contributorLogin) {
+        config.contributorLogin = normalizeConfiguredLogin(localConfig.contributorLogin);
+      }
+      if (!config.readyToMergeReviewMode) {
+        config.readyToMergeReviewMode = normalizeReadyToMergeReviewMode(localConfig.readyToMergeReviewMode);
+      }
     } catch (error) {
       throw new Error(`无法读取 ${path.basename(CONFIG_FILE)}: ${error.message}`);
     }
@@ -240,6 +268,9 @@ function parseArgs(argv) {
       case "--no-event-subagent":
         config.eventSubagentEnabled = false;
         break;
+      case "--ready-to-merge-review-mode":
+        config.readyToMergeReviewMode = normalizeReadyToMergeReviewMode(requireValue(argv, ++index, current), current);
+        break;
       case "--help":
       case "-h":
         printHelp();
@@ -254,6 +285,8 @@ function parseArgs(argv) {
 }
 
 function validateConfig(config) {
+  config.readyToMergeReviewMode = normalizeReadyToMergeReviewMode(config.readyToMergeReviewMode)
+    || DEFAULT_READY_TO_MERGE_REVIEW_MODE;
   if (config.enableEventListener && !config.eventSubagentEnabled) {
     const error = new Error("Invalid configuration: --enable-event-listener requires subagent mode; remove --no-event-subagent.");
     error.exitCode = 2;
@@ -303,6 +336,7 @@ function printHelp() {
       "  --no-event-notification       禁用系统通知",
       "  --event-subagent              task-backed 事件使用 subagent（默认开启）",
       "  --no-event-subagent           禁用 subagent；与 --enable-event-listener 冲突",
+      "  --ready-to-merge-review-mode <mode> READY_TO_MERGE review mode: require-approval / allow-no-review-required",
       "  --help, -h                    显示帮助",
       "",
     ].join("\n"),
@@ -1112,9 +1146,18 @@ function isNeedsRebaseFromRaw(raw) {
   return mergeStateStatus === "BEHIND" || mergeStateStatus === "DIRTY" || mergeable === "CONFLICTING";
 }
 
-function isReadyToMergeFromRaw(raw) {
+function isReviewSatisfiedForReadyToMerge(raw, reviewMode = DEFAULT_READY_TO_MERGE_REVIEW_MODE) {
+  if (raw.reviewDecision === "APPROVED") {
+    return true;
+  }
+  return reviewMode === "allow-no-review-required" && raw.reviewDecision === null;
+}
+
+function isReadyToMergeFromRaw(raw, options = {}) {
+  const reviewMode = normalizeReadyToMergeReviewMode(options.readyToMergeReviewMode)
+    || DEFAULT_READY_TO_MERGE_REVIEW_MODE;
   return !raw.isDraft
-    && raw.reviewDecision === "APPROVED"
+    && isReviewSatisfiedForReadyToMerge(raw, reviewMode)
     && raw.statusCheckState === "SUCCESS"
     && raw.mergeable === "MERGEABLE"
     && Number(raw.unresolvedReviewThreadCount || 0) === 0;
@@ -2853,7 +2896,7 @@ class EventListener {
       this.actionLogger.writeLine(`[${nowStamp()}] event_info pr=${snapshot.prKey} type=REVIEW_APPROVED`);
     }
 
-    if (isReadyToMergeFromRaw(snapshot) && !isReadyToMergeFromRaw(observed)) {
+    if (isReadyToMergeFromRaw(snapshot, this.config) && !isReadyToMergeFromRaw(observed, this.config)) {
       if (this.config.eventNotificationEnabled) {
         notifyEvent("READY_TO_MERGE", snapshot.prKey, "INFO", this.actionLogger);
       }
@@ -3426,6 +3469,7 @@ async function refreshEventJsonOnce(options = {}, actionLogger = { writeLine() {
     stateFile: options.stateFile,
     taskFile: options.taskFile,
     eventListenerLockFile: options.eventListenerLockFile,
+    readyToMergeReviewMode: options.readyToMergeReviewMode || DEFAULTS.readyToMergeReviewMode,
   }, actionLogger);
 
   try {
@@ -3565,6 +3609,7 @@ async function main() {
   actionLogger.writeLine(`effort=${config.effort}`);
   actionLogger.writeLine(`enableEventListener=${config.enableEventListener}`);
   actionLogger.writeLine(`eventPollIntervalMs=${config.eventPollIntervalMs}`);
+  actionLogger.writeLine(`readyToMergeReviewMode=${config.readyToMergeReviewMode}`);
   actionLogger.writeLine(`git_status=${gitStatus}`);
   actionLogger.writeLine(`prompt=${config.prompt}`);
 
@@ -3574,6 +3619,7 @@ async function main() {
     eventPollIntervalMs: config.eventPollIntervalMs,
     eventNotificationEnabled: config.eventNotificationEnabled,
     enableTaskDispatch: config.enableEventListener,
+    readyToMergeReviewMode: config.readyToMergeReviewMode,
   }, actionLogger);
   if (config.enableEventListener || CONTRIBUTOR_LOGIN) {
     await refreshEventJsonOnce({ listener: eventListener }, actionLogger);

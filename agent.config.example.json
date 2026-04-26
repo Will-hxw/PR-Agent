@@ -1,3 +1,4 @@
 {
-  "contributorLogin": "YOUR_GITHUB_LOGIN"
+  "contributorLogin": "YOUR_GITHUB_LOGIN",
+  "readyToMergeReviewMode": "require-approval"
 }
