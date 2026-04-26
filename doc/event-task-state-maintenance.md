@@ -5,7 +5,7 @@
 ## 操作前提
 
 - 人工编辑运行时 JSON 前，必须先停止正在运行的 event listener / launcher。
-- 不要在 listener 运行期间手工编辑 `event_task.json` 或 `event_state.json`；当前 listener 会持有内存状态，下一轮轮询保存时可能覆盖磁盘上的人工更新。
+- 不要在 listener 运行期间手工编辑 `event_task.json` 或 `event_state.json`；listener 保存前会检测磁盘变更并尝试重载重放，但这只是防 lost update 的保护，不是人工并行写入接口。
 - `update.sh` 只用于按启动路径刷新 JSON，不是人工删除或确认 task 的替代入口。
 - `event_state.json` 与 `event_task.json` 的 `runtimeRevision` 必须保持一致；人工编辑两个文件时不要改成不同 revision。
 - 如果 listener 无法停止，先不要编辑 JSON；应记录需要处理的 `task.id`、`prKey`、`type` 和最新 GitHub 状态，等 listener 停止后再维护。
@@ -20,7 +20,7 @@
 
 ## 优先路径
 
-subagent 派发的任务不要手工编辑两个 JSON 文件。subagent 完成工作后输出结构化 `task result`，launcher 会刷新 GitHub 状态，并按结果推进 state baseline、删除 task、block task 或进入 retry。
+subagent 派发的任务不要手工编辑两个 JSON 文件。subagent 完成工作后输出带 `nonce` 的结构化 `task result`，launcher 只接受最终消息中的唯一 result 行，然后刷新 GitHub 状态，并按结果推进 state baseline、删除 task、block task 或进入 retry。
 
 只有 listener 已停止、且需要人工确认或解除异常 runtime 状态时，才需要人工维护 JSON。
 

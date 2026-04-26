@@ -19,12 +19,15 @@ function createLogger() {
 }
 
 function createListener(overrides = {}) {
+  const runtimeDir = path.join(os.tmpdir(), `pr-agent-runtime-${process.pid}-${Date.now()}-${Math.random()}`);
   return new agent.EventListener({
     cwd: process.cwd(),
     claudeCommand: "claude.cmd",
     enableTaskDispatch: false,
     eventNotificationEnabled: false,
     eventPollIntervalMs: 1000,
+    stateFile: path.join(runtimeDir, "event_state.json"),
+    taskFile: path.join(runtimeDir, "event_task.json"),
     eventListenerLockFile: path.join(os.tmpdir(), `pr-agent-event-listener-${process.pid}-${Date.now()}-${Math.random()}.lock`),
     ...overrides,
   }, createLogger());
@@ -103,6 +106,7 @@ function makeTask(overrides = {}) {
     claimedAt: overrides.claimedAt || null,
     runningPid: overrides.runningPid || null,
     lastOutputAt: overrides.lastOutputAt || null,
+    resultNonce: overrides.resultNonce || null,
     blockedAt: overrides.blockedAt || null,
     blockReason: overrides.blockReason || null,
     blockOwner: overrides.blockOwner || null,
@@ -123,6 +127,17 @@ async function createRuntimeFiles(prefix = "pr-agent-runtime-") {
     taskFile: path.join(dir, "event_task.json"),
     lockFile: path.join(dir, "event-listener.lock"),
   };
+}
+
+async function waitFor(predicate, timeoutMs = 1000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() <= deadline) {
+    if (await predicate()) {
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  assert.ok(await predicate(), "condition was not met before timeout");
 }
 
 function createIsolatedListener(runtime, overrides = {}) {
@@ -443,7 +458,7 @@ test("subagent prompt isolates untrusted PR activity details", () => {
 
 test("subagent does not accept an echoed prompt example as task result", async () => {
   const listener = createListener();
-  listener.taskManager.save = async () => {};
+  listener.saveAll = async () => {};
   const child = new EventEmitter();
   child.stdout = new EventEmitter();
   child.stderr = new EventEmitter();
@@ -474,11 +489,53 @@ test("subagent does not accept an echoed prompt example as task result", async (
     },
   })}\n`));
   child.emit("close", 0, null);
-  await new Promise((resolve) => setImmediate(resolve));
+  await waitFor(() => listener.taskManager.getById(task.id)?.status === agent.TASK_STATUS.PENDING);
 
   const updated = listener.taskManager.getById(task.id);
   assert.equal(updated.status, agent.TASK_STATUS.PENDING);
-  assert.match(updated.lastError, /task_result_payload_mismatch|missing_task_result/);
+  assert.match(updated.lastError, /task_result_not_final_unique_line|task_result_payload_mismatch|missing_task_result/);
+});
+
+test("subagent finalize does not recreate an externally deleted task", async () => {
+  const runtime = await createRuntimeFiles();
+  try {
+    const child = new EventEmitter();
+    child.stdout = new EventEmitter();
+    child.stderr = new EventEmitter();
+    child.stdin = {
+      write() {},
+      end() {},
+    };
+    child.pid = 7901;
+    const listener = createIsolatedListener(runtime);
+    listener._spawnSubagent = () => child;
+    const task = listener.taskManager.add(
+      "demo/repo#79",
+      "NEW_COMMENT",
+      agent.TASK_EVENT_SEVERITY.NEW_COMMENT,
+      { snapshotSummary: "comment" },
+      agent.normalizeBoundary(null),
+    );
+
+    await listener._startTask(task);
+    const stateFile = JSON.parse(await fs.readFile(runtime.stateFile, "utf8"));
+    const taskFile = JSON.parse(await fs.readFile(runtime.taskFile, "utf8"));
+    taskFile.events = [];
+    await agent.writeJsonFileAtomic(runtime.stateFile, stateFile);
+    await agent.writeJsonFileAtomic(runtime.taskFile, taskFile);
+
+    child.emit("close", 1, null);
+    await waitFor(async () => {
+      const finalTasks = JSON.parse(await fs.readFile(runtime.taskFile, "utf8"));
+      return finalTasks.events.length === 0;
+    });
+    listener.stop();
+
+    const finalTasks = JSON.parse(await fs.readFile(runtime.taskFile, "utf8"));
+    assert.deepStrictEqual(finalTasks.events, []);
+  } finally {
+    await fs.rm(runtime.dir, { recursive: true, force: true });
+  }
 });
 
 test("task result parser accepts v2 statuses and legacy success ack", () => {
@@ -536,6 +593,64 @@ test("task result parser rejects mismatched or unknown payloads", () => {
     type: task.type,
     status: "maybe",
   })}`, task).valid, false);
+});
+
+test("task result parser requires nonce for claimed tasks", () => {
+  const task = makeTask({
+    id: "result-task",
+    prKey: "demo/repo#7",
+    type: "CI_FAILURE",
+    resultNonce: "nonce-123",
+  });
+  const payload = {
+    version: 2,
+    eventId: task.id,
+    prKey: task.prKey,
+    type: task.type,
+    status: "resolved",
+  };
+
+  assert.equal(agent.parseTaskResultLine(`__EVENT_RESULT__ ${JSON.stringify(payload)}`, task).valid, false);
+  assert.equal(agent.parseTaskResultLine(`__EVENT_RESULT__ ${JSON.stringify({
+    ...payload,
+    nonce: "wrong",
+  })}`, task).valid, false);
+
+  const parsed = agent.parseTaskResultLine(`__EVENT_RESULT__ ${JSON.stringify({
+    ...payload,
+    nonce: "nonce-123",
+  })}`, task);
+  assert.equal(parsed.valid, true);
+  assert.equal(parsed.payload.nonce, "nonce-123");
+
+  assert.equal(agent.parseTaskResultLine(`__EVENT_RESULT__ ${JSON.stringify({
+    version: 1,
+    eventId: task.id,
+    prKey: task.prKey,
+    type: task.type,
+    status: "success",
+  })}`, task).valid, false);
+});
+
+test("final task result must be the only assistant text line", () => {
+  const task = makeTask({
+    id: "result-task",
+    prKey: "demo/repo#7",
+    type: "CI_FAILURE",
+    resultNonce: "nonce-123",
+  });
+  const line = `__EVENT_RESULT__ ${JSON.stringify({
+    version: 2,
+    eventId: task.id,
+    prKey: task.prKey,
+    type: task.type,
+    nonce: "nonce-123",
+    status: "resolved",
+  })}`;
+
+  assert.equal(agent.parseFinalTaskResultText(line, task).valid, true);
+  assert.equal(agent.parseFinalTaskResultText(`Done.\n${line}`, task).valid, false);
+  assert.equal(agent.parseFinalTaskResultText(`${line}\nDone.`, task).valid, false);
 });
 
 test("dedupe helper matches any existing task for the same PR and type", () => {
@@ -843,6 +958,56 @@ test("listener reloads external task deletion before next poll save", async () =
 
     const finalTasks = JSON.parse(await fs.readFile(runtime.taskFile, "utf8"));
     assert.deepStrictEqual(finalTasks.events, []);
+  } finally {
+    await fs.rm(runtime.dir, { recursive: true, force: true });
+  }
+});
+
+test("runtime mutation retries after an external write and preserves it", async () => {
+  const runtime = await createRuntimeFiles();
+  try {
+    const listener = createIsolatedListener(runtime);
+    await agent.writeJsonFileAtomic(runtime.stateFile, {
+      schemaVersion: 1,
+      runtimeRevision: "base",
+      prs: {},
+      lastSyncAt: "2026-04-24T00:00:00.000Z",
+    });
+    await agent.writeJsonFileAtomic(runtime.taskFile, {
+      schemaVersion: 1,
+      runtimeRevision: "base",
+      events: [],
+    });
+
+    await listener._withRuntimeMutation("test_conflict_retry", async ({ attempt }) => {
+      if (attempt === 1) {
+        await agent.writeJsonFileAtomic(runtime.taskFile, {
+          schemaVersion: 1,
+          runtimeRevision: "base",
+          events: [
+            makeTask({
+              id: "external-task",
+              prKey: "demo/repo#80",
+              type: "NEW_COMMENT",
+            }),
+          ],
+        });
+      }
+      listener.taskManager.add(
+        "demo/repo#81",
+        "BOT_COMMENT",
+        agent.TASK_EVENT_SEVERITY.BOT_COMMENT,
+        { snapshotSummary: "bot" },
+        agent.normalizeBoundary(null),
+      );
+    });
+
+    listener.stop();
+
+    const taskFile = JSON.parse(await fs.readFile(runtime.taskFile, "utf8"));
+    assert.equal(taskFile.events.some((event) => event.id === "external-task"), true);
+    assert.equal(taskFile.events.some((event) => event.prKey === "demo/repo#81"), true);
+    assert.ok(listener.actionLogger.lines.some((line) => line.includes("runtime_save_conflict")));
   } finally {
     await fs.rm(runtime.dir, { recursive: true, force: true });
   }
@@ -1161,7 +1326,6 @@ test("terminal cleanup marks active subagent result as ignored", async () => {
   const listener = createListener({
     fetchPrTerminalStatus: async () => ({ terminal: true, reason: "closed" }),
   });
-  listener.taskManager.save = async () => {};
   listener.saveAll = async () => {};
   listener._spawnSubagent = () => child;
   const task = listener.taskManager.add(
@@ -1507,10 +1671,33 @@ test("already claimed task is not spawned again", async () => {
   assert.equal(spawnCount, 0);
 });
 
+test("subagent command uses configured effort", async () => {
+  const listener = createListener({
+    effort: "low",
+  });
+  listener.saveAll = async () => {};
+  let commandString = "";
+  listener._spawnSubagent = (command) => {
+    commandString = command;
+    throw new Error("stop before spawning");
+  };
+  const task = listener.taskManager.add(
+    "demo/repo#90",
+    "NEW_COMMENT",
+    agent.TASK_EVENT_SEVERITY.NEW_COMMENT,
+    { snapshotSummary: "comment" },
+    agent.normalizeBoundary(null),
+  );
+
+  await listener._startTask(task);
+
+  assert.match(commandString, /--effort low/);
+});
+
 test("subagent output updates running heartbeat", async () => {
   const listener = createListener();
   let saveCount = 0;
-  listener.taskManager.save = async () => {
+  listener.saveAll = async () => {
     saveCount += 1;
   };
   const child = new EventEmitter();
@@ -1536,13 +1723,13 @@ test("subagent output updates running heartbeat", async () => {
   running.lastOutputAt = "2000-01-01T00:00:00.000Z";
 
   child.stdout.emit("data", Buffer.from("{}\n"));
-  await new Promise((resolve) => setImmediate(resolve));
+  await waitFor(() => listener.taskManager.getById(task.id)?.lastOutputAt !== "2000-01-01T00:00:00.000Z");
 
   assert.notEqual(listener.taskManager.getById(task.id).lastOutputAt, "2000-01-01T00:00:00.000Z");
   assert.ok(saveCount >= 3);
 
   child.emit("close", 1, null);
-  await new Promise((resolve) => setImmediate(resolve));
+  await waitFor(() => listener.taskManager.getById(task.id)?.status === agent.TASK_STATUS.PENDING);
 });
 
 test("CI retry refreshes failing checks before dispatch", async () => {
@@ -1617,7 +1804,7 @@ test("CI retry refresh failure defers without incrementing attempts", async () =
       throw new Error("network unavailable");
     },
   });
-  listener.taskManager.save = async () => {};
+  listener.saveAll = async () => {};
   const task = listener.taskManager.add(
     "demo/repo#24",
     "CI_FAILURE",
@@ -1653,7 +1840,7 @@ test("CI retry boundary regression defers without dispatching stale details", as
       failingChecks: [{ label: "ci-regressed", conclusion: "FAILURE" }],
     }),
   });
-  listener.taskManager.save = async () => {};
+  listener.saveAll = async () => {};
   const task = listener.taskManager.add(
     "demo/repo#25",
     "CI_FAILURE",
@@ -1831,7 +2018,6 @@ test("state-backed success with active trigger blocks instead of retrying", asyn
   const listener = createListener({
     fetchPrSnapshot: async () => snapshot,
   });
-  listener.taskManager.save = async () => {};
   listener.saveAll = async () => {};
   const task = listener.taskManager.add(
     snapshot.prKey,
@@ -1860,7 +2046,7 @@ test("blocked task result stores blocked state without retrying", async () => {
   const listener = createListener({
     fetchPrSnapshot: async () => snapshot,
   });
-  listener.taskManager.save = async () => {};
+  listener.saveAll = async () => {};
   const task = listener.taskManager.add(
     snapshot.prKey,
     "NEW_COMMENT",
@@ -1902,7 +2088,7 @@ test("blocked task result uses existing details when refresh fails", async () =>
       throw new Error("network down");
     },
   });
-  listener.taskManager.save = async () => {};
+  listener.saveAll = async () => {};
   const task = listener.taskManager.add(
     "demo/repo#45",
     "CI_FAILURE",
@@ -1953,7 +2139,7 @@ test("blocked comment task preserves category boundary", async () => {
   const listener = createListener({
     fetchPrSnapshot: async () => snapshot,
   });
-  listener.taskManager.save = async () => {};
+  listener.saveAll = async () => {};
   const task = listener.taskManager.add(
     snapshot.prKey,
     "BOT_COMMENT",
@@ -2029,7 +2215,6 @@ test("not actionable state-backed result blocks while trigger is still active", 
   const listener = createListener({
     fetchPrSnapshot: async () => snapshot,
   });
-  listener.taskManager.save = async () => {};
   listener.saveAll = async () => {};
   const task = listener.taskManager.add(
     snapshot.prKey,
@@ -2096,7 +2281,7 @@ test("state-backed failure refreshes boundary and details before retry", async (
   const listener = createListener({
     fetchPrSnapshot: async () => refreshedSnapshot,
   });
-  listener.taskManager.save = async () => {};
+  listener.saveAll = async () => {};
   const task = listener.taskManager.add(
     refreshedSnapshot.prKey,
     "CI_FAILURE",
@@ -2126,7 +2311,7 @@ test("state-backed failure blocks contributor-only triggers instead of retrying"
   const listener = createListener({
     fetchPrSnapshot: async () => refreshedSnapshot,
   });
-  listener.taskManager.save = async () => {};
+  listener.saveAll = async () => {};
   const task = listener.taskManager.add(
     refreshedSnapshot.prKey,
     "CI_FAILURE",
@@ -2177,7 +2362,7 @@ test("state-backed failure refresh failure keeps old boundary and retries", asyn
       throw new Error("network down");
     },
   });
-  listener.taskManager.save = async () => {};
+  listener.saveAll = async () => {};
   const task = listener.taskManager.add(
     "demo/repo#50",
     "CI_FAILURE",
@@ -2204,7 +2389,7 @@ test("state-backed failure boundary regression keeps old boundary", async () => 
       failingChecks: [{ label: "ci-old-snapshot", conclusion: "FAILURE" }],
     }),
   });
-  listener.taskManager.save = async () => {};
+  listener.saveAll = async () => {};
   const task = listener.taskManager.add(
     "demo/repo#51",
     "CI_FAILURE",
@@ -2225,7 +2410,7 @@ test("state-backed failure boundary regression keeps old boundary", async () => 
 
 test("ordinary task failure still uses retry state", async () => {
   const listener = createListener();
-  listener.taskManager.save = async () => {};
+  listener.saveAll = async () => {};
   const task = listener.taskManager.add(
     "demo/repo#43",
     "NEW_COMMENT",

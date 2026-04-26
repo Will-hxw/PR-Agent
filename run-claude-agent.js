@@ -7,7 +7,7 @@ const fs = require("node:fs");
 const fsPromises = require("node:fs/promises");
 const path = require("node:path");
 const os = require("node:os");
-const { randomUUID } = require("node:crypto");
+const { createHash, randomUUID } = require("node:crypto");
 
 const ROOT_DIR = __dirname;
 const STATE_FILE = path.join(ROOT_DIR, "event_state.json");
@@ -512,6 +512,22 @@ async function readJsonFileIfExists(filePath) {
   }
 }
 
+async function readFileHashIfExists(filePath) {
+  try {
+    const raw = await fsPromises.readFile(filePath, "utf8");
+    return createHash("sha256").update(raw).digest("hex");
+  } catch (error) {
+    if (error.code === "ENOENT") {
+      return "missing";
+    }
+    throw error;
+  }
+}
+
+function runtimeSignaturesEqual(left, right) {
+  return Boolean(left && right && left.state === right.state && left.task === right.task);
+}
+
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -859,6 +875,7 @@ function normalizeTaskRecord(raw) {
     blockCategory: normalizeTaskMetadataString(raw.blockCategory, 80),
     unblockHint: normalizeTaskMetadataString(raw.unblockHint, 400),
     blockedSnapshot: raw.blockedSnapshot && typeof raw.blockedSnapshot === "object" ? cloneJson(raw.blockedSnapshot) : null,
+    resultNonce: normalizeTaskMetadataString(raw.resultNonce, 80),
     boundary: normalizeBoundary(raw.boundary),
     details: raw.details && typeof raw.details === "object" ? cloneJson(raw.details) : {},
   };
@@ -1004,6 +1021,9 @@ function buildTaskResultRecord(task, status = "resolved", reason = "", summary =
     reason,
     summary,
   };
+  if (task.resultNonce) {
+    record.nonce = task.resultNonce;
+  }
   for (const key of ["actionability", "blockOwner", "blockCategory", "unblockHint"]) {
     if (metadata[key]) {
       record[key] = metadata[key];
@@ -1027,6 +1047,7 @@ function buildSubagentPrompt(task) {
     eventId: "<copy eventId from this task>",
     prKey: "<copy prKey from this task>",
     type: "<copy type from this task>",
+    nonce: "<copy result nonce from this task>",
     status: "resolved",
     reason: "handled",
     summary: "Brief outcome summary",
@@ -1050,6 +1071,7 @@ function buildSubagentPrompt(task) {
     "5. 如需更新记录，只更新与该 PR 直接相关的 records 内容。",
     "6. 任务/状态文件维护规则见 doc/event-task-state-maintenance.md。",
     "7. 这是 subagent 任务，不要手动编辑 event_state.json 或 event_task.json；完成后按 task result 协议输出结构化结果，由 launcher 推进 state、删除、block 或 retry 对应 task。",
+    `8. Result nonce: ${task.resultNonce || "<legacy task without nonce>"}`,
     "",
     "task result 协议：",
     "最后单独输出一行，不要放进代码块。status 必须是 resolved、blocked、needs_human、not_actionable 之一。",
@@ -1058,7 +1080,7 @@ function buildSubagentPrompt(task) {
     "- needs_human：需要 contributor、maintainer 或人工决策。",
     "- not_actionable：确认该事件不需要行动；状态型 task 仍必须由 launcher 验证触发条件已消失。",
     "Optional fields for blocked/needs_human/not_actionable: actionability, blockOwner, blockCategory, unblockHint. Use actionability values such as needs_contributor_action, needs_maintainer_action, needs_human_decision, needs_infra_action, not_actionable, or unknown.",
-    "输出格式示例，保持 version/eventId/prKey/type 字段不变，只改 status/reason/summary：",
+    "输出格式示例，保持 version/eventId/prKey/type/nonce 字段与本 task 一致，只改 status/reason/summary：",
     resultLine,
     "",
     "如果没有形成明确结论，不要输出 task result。",
@@ -1505,6 +1527,7 @@ function normalizeTaskResultPayload(payload) {
     eventId: payload.eventId,
     prKey: payload.prKey,
     type: payload.type,
+    nonce: normalizeTaskMetadataString(payload.nonce, 80),
     status: payload.status,
     reason: truncate(payload.reason || "", 200),
     summary: truncate(payload.summary || "", 400),
@@ -1515,19 +1538,15 @@ function normalizeTaskResultPayload(payload) {
   };
 }
 
-function extractTaskResultFromTextBuffer(bufferHolder, task) {
-  let parsed = null;
-  let newlineIndex = bufferHolder.buffer.indexOf("\n");
-  while (newlineIndex >= 0) {
-    const line = bufferHolder.buffer.slice(0, newlineIndex).replace(/\r$/, "");
-    bufferHolder.buffer = bufferHolder.buffer.slice(newlineIndex + 1);
-    const maybe = parseTaskResultLine(line, task);
-    if (maybe) {
-      parsed = maybe;
-    }
-    newlineIndex = bufferHolder.buffer.indexOf("\n");
+function parseFinalTaskResultText(text, task) {
+  const trimmed = String(text || "").trim();
+  if (!trimmed) {
+    return null;
   }
-  return parsed;
+  if (/[\r\n]/.test(trimmed)) {
+    return { valid: false, reason: "task_result_not_final_unique_line" };
+  }
+  return parseTaskResultLine(trimmed, task);
 }
 
 function parseTaskResultLine(line, task) {
@@ -1545,6 +1564,7 @@ function parseTaskResultLine(line, task) {
   const expected = buildTaskResultRecord(task);
   if (
     payload
+    && !task.resultNonce
     && payload.version === 1
     && payload.eventId === task.id
     && payload.prKey === task.prKey
@@ -1570,6 +1590,7 @@ function parseTaskResultLine(line, task) {
     && payload.eventId === expected.eventId
     && payload.prKey === expected.prKey
     && payload.type === expected.type
+    && (!task.resultNonce || payload.nonce === task.resultNonce)
     && TASK_RESULT_STATUSES.has(payload.status)
   ) {
     return { valid: true, payload: normalizeTaskResultPayload(payload) };
@@ -2187,6 +2208,7 @@ class EventTaskManager {
       event.claimedAt = null;
       event.runningPid = null;
       event.lastOutputAt = null;
+      event.resultNonce = null;
       event.blockedAt = null;
       event.blockReason = null;
       event.blockOwner = null;
@@ -2223,6 +2245,7 @@ class EventTaskManager {
       blockCategory: null,
       unblockHint: null,
       blockedSnapshot: null,
+      resultNonce: null,
       boundary: normalizeBoundary(boundary),
       details: cloneJson(details || {}),
     };
@@ -2262,6 +2285,7 @@ class EventTaskManager {
     event.claimedAt = nowIso();
     event.lastOutputAt = event.claimedAt;
     event.runningPid = pid || null;
+    event.resultNonce = randomUUID();
     event.blockedAt = null;
     event.blockReason = null;
     event.blockOwner = null;
@@ -2280,6 +2304,7 @@ class EventTaskManager {
     event.claimedAt = null;
     event.runningPid = null;
     event.lastOutputAt = null;
+    event.resultNonce = null;
     event.blockedAt = null;
     event.blockReason = null;
     event.blockOwner = null;
@@ -2313,6 +2338,7 @@ class EventTaskManager {
     event.claimedAt = null;
     event.runningPid = null;
     event.lastOutputAt = null;
+    event.resultNonce = null;
     event.blockedAt = null;
     event.blockReason = null;
     event.blockOwner = null;
@@ -2344,6 +2370,7 @@ class EventTaskManager {
     event.claimedAt = null;
     event.runningPid = null;
     event.lastOutputAt = null;
+    event.resultNonce = null;
     event.blockedAt = null;
     event.blockReason = null;
     event.blockOwner = null;
@@ -2373,6 +2400,7 @@ class EventTaskManager {
     event.claimedAt = null;
     event.runningPid = null;
     event.lastOutputAt = null;
+    event.resultNonce = null;
     event.blockOwner = normalizeTaskMetadataString(metadata.blockOwner, 80);
     event.blockCategory = normalizeTaskMetadataString(metadata.blockCategory, 80);
     event.unblockHint = normalizeTaskMetadataString(metadata.unblockHint, 400);
@@ -2424,21 +2452,84 @@ class EventListener {
     this.fetchPrTerminalStatus = config.fetchPrTerminalStatus || fetchPrTerminalStatus;
     this.activeSubagents = new Map();
     this.terminalPrs = new Set();
+    this._runtimeMutationQueue = Promise.resolve();
   }
 
   async load(options = {}) {
     if (this.loaded && !options.force) {
       return;
     }
+    const beforeSignature = await this._readRuntimeSignature();
+    const { resetCount } = await this._loadRuntimeFromDisk({ recoverRunning: true });
+    if (resetCount > 0) {
+      this.actionLogger.writeLine(`[${nowStamp()}] event_listener_recovered_running_tasks count=${resetCount}`);
+      await this._saveRuntimeIfUnchanged("recover_running_tasks", beforeSignature);
+    }
+  }
+
+  async _readRuntimeSignature() {
+    const [state, task] = await Promise.all([
+      readFileHashIfExists(this.state.filePath),
+      readFileHashIfExists(this.taskManager.filePath),
+    ]);
+    return { state, task };
+  }
+
+  async _loadRuntimeFromDisk(options = {}) {
     await this.state.load();
     await this.taskManager.load();
     assertRuntimeRevisionCompatible(this.state.revision, this.taskManager.revision);
-    const resetCount = this.taskManager.resetRunningTasks();
-    if (resetCount > 0) {
-      this.actionLogger.writeLine(`[${nowStamp()}] event_listener_recovered_running_tasks count=${resetCount}`);
-      await this.taskManager.save();
-    }
+    const resetCount = options.recoverRunning ? this.taskManager.resetRunningTasks() : 0;
     this.loaded = true;
+    return { resetCount };
+  }
+
+  async _saveRuntimeIfUnchanged(reason, beforeSignature) {
+    const currentSignature = await this._readRuntimeSignature();
+    if (!runtimeSignaturesEqual(beforeSignature, currentSignature)) {
+      this.actionLogger.writeLine(
+        `[${nowStamp()}] runtime_save_conflict reason=${reason} action=skip`,
+      );
+      return false;
+    }
+    await this.saveAll();
+    return true;
+  }
+
+  async _withRuntimeMutation(reason, mutator, options = {}) {
+    const run = async () => this._runRuntimeMutation(reason, mutator, options);
+    const result = this._runtimeMutationQueue.then(run, run);
+    this._runtimeMutationQueue = result.catch(() => {});
+    return result;
+  }
+
+  async _runRuntimeMutation(reason, mutator, options = {}) {
+    const attempts = options.attempts || 2;
+    const save = options.save !== false;
+    for (let attempt = 1; attempt <= attempts; attempt += 1) {
+      const beforeSignature = await this._readRuntimeSignature();
+      const shouldReload = options.reload !== false
+        && (this.loaded || beforeSignature.state !== "missing" || beforeSignature.task !== "missing");
+      if (shouldReload) {
+        await this._loadRuntimeFromDisk({ recoverRunning: false });
+      }
+      const result = await mutator({ attempt });
+      if (!save) {
+        return result;
+      }
+      if (result === null && options.saveOnNull !== true) {
+        return result;
+      }
+      const currentSignature = await this._readRuntimeSignature();
+      if (runtimeSignaturesEqual(beforeSignature, currentSignature)) {
+        await this.saveAll();
+        return result;
+      }
+      this.actionLogger.writeLine(
+        `[${nowStamp()}] runtime_save_conflict reason=${reason} attempt=${attempt} action=${attempt < attempts ? "retry" : "skip"}`,
+      );
+    }
+    return null;
   }
 
   async saveAll() {
@@ -2597,30 +2688,30 @@ class EventListener {
   }
 
   async _refreshJsonState() {
-    const logPrefix = `[${nowStamp()}] event_tick`;
-    let prList;
-    try {
-      prList = await this._fetchOpenPrList();
-    } catch (error) {
-      this.actionLogger.writeLine(`${logPrefix} search_failed=${truncate(error.message || error, 300)}`);
-      return;
-    }
-
-    const openPrKeys = new Set(prList.map((pr) => pr.prKey));
-    await this._cleanupTerminalPrs(openPrKeys);
-
-    for (const pr of prList) {
+    await this._withRuntimeMutation("refresh_json_state", async () => {
+      const logPrefix = `[${nowStamp()}] event_tick`;
+      let prList;
       try {
-        const snapshot = await this.fetchPrSnapshot(pr.prKey, {
-          timeoutMs: GH_TIMEOUT_MS,
-        });
-        await this._scanSnapshot(snapshot);
+        prList = await this._fetchOpenPrList();
       } catch (error) {
-        this.actionLogger.writeLine(`${logPrefix} pr_scan_failed pr=${pr.prKey} err=${truncate(error.message || error, 300)}`);
+        this.actionLogger.writeLine(`${logPrefix} search_failed=${truncate(error.message || error, 300)}`);
+        return null;
       }
-    }
 
-    await this.saveAll();
+      const openPrKeys = new Set(prList.map((pr) => pr.prKey));
+      await this._cleanupTerminalPrs(openPrKeys);
+
+      for (const pr of prList) {
+        try {
+          const snapshot = await this.fetchPrSnapshot(pr.prKey, {
+            timeoutMs: GH_TIMEOUT_MS,
+          });
+          await this._scanSnapshot(snapshot);
+        } catch (error) {
+          this.actionLogger.writeLine(`${logPrefix} pr_scan_failed pr=${pr.prKey} err=${truncate(error.message || error, 300)}`);
+        }
+      }
+    });
   }
 
   async _fetchOpenPrList() {
@@ -2960,35 +3051,54 @@ class EventListener {
       });
     } catch (error) {
       const reason = `retry_refresh_failed: ${error.message}`;
-      this.taskManager.defer(task.id, reason);
-      this.actionLogger.writeLine(
-        `[${nowStamp()}] event_retry_refresh_failed pr=${task.prKey} task=${task.id} type=${task.type} reason=${truncate(error.message || error, 300)}`,
-      );
-      await this.taskManager.save();
+      await this._withRuntimeMutation("retry_refresh_defer", async () => {
+        const current = this.taskManager.getById(task.id);
+        if (!current) {
+          return null;
+        }
+        this.taskManager.defer(current.id, reason);
+        this.actionLogger.writeLine(
+          `[${nowStamp()}] event_retry_refresh_failed pr=${current.prKey} task=${current.id} type=${current.type} reason=${truncate(error.message || error, 300)}`,
+        );
+        return current;
+      });
       return null;
     }
 
     if (boundaryRefreshRegresses(task.boundary, buildBoundaryFromSnapshot(snapshot))) {
       const reason = "retry_refresh_boundary_regressed";
-      this.taskManager.defer(task.id, reason);
-      this.actionLogger.writeLine(
-        `[${nowStamp()}] event_retry_refresh_regressed pr=${task.prKey} task=${task.id} type=${task.type} current=${task.boundary?.snapshotUpdatedAt || "none"} candidate=${snapshot.updatedAt || "none"}`,
-      );
-      await this.taskManager.save();
+      await this._withRuntimeMutation("retry_refresh_boundary_regressed", async () => {
+        const current = this.taskManager.getById(task.id);
+        if (!current) {
+          return null;
+        }
+        this.taskManager.defer(current.id, reason);
+        this.actionLogger.writeLine(
+          `[${nowStamp()}] event_retry_refresh_regressed pr=${current.prKey} task=${current.id} type=${current.type} current=${current.boundary?.snapshotUpdatedAt || "none"} candidate=${snapshot.updatedAt || "none"}`,
+        );
+        return current;
+      });
       return null;
     }
 
     const oldChecks = task.type === "CI_FAILURE" ? summarizeCheckLabels(task.details?.failingChecks) : "";
     try {
-      await this._scanSnapshot(snapshot);
-      await this.saveAll();
+      await this._withRuntimeMutation("retry_refresh_scan", async () => {
+        await this._scanSnapshot(snapshot);
+      });
     } catch (error) {
       const reason = `retry_refresh_failed: ${error.message}`;
-      this.taskManager.defer(task.id, reason);
-      this.actionLogger.writeLine(
-        `[${nowStamp()}] event_retry_refresh_failed pr=${task.prKey} task=${task.id} type=${task.type} reason=${truncate(error.message || error, 300)}`,
-      );
-      await this.taskManager.save();
+      await this._withRuntimeMutation("retry_refresh_scan_failed", async () => {
+        const current = this.taskManager.getById(task.id);
+        if (!current) {
+          return null;
+        }
+        this.taskManager.defer(current.id, reason);
+        this.actionLogger.writeLine(
+          `[${nowStamp()}] event_retry_refresh_failed pr=${current.prKey} task=${current.id} type=${current.type} reason=${truncate(error.message || error, 300)}`,
+        );
+        return current;
+      });
       return null;
     }
 
@@ -3017,6 +3127,7 @@ class EventListener {
   }
 
   async _startTask(task) {
+    const taskId = task.id;
     const commandString = [
       shellQuote(this.config.claudeCommand),
       "-p",
@@ -3027,16 +3138,21 @@ class EventListener {
       "--input-format",
       "stream-json",
       "--effort",
-      "max",
+      this.config.effort || DEFAULTS.effort,
     ].join(" ");
 
-    const claimed = this.taskManager.claim(task.id, null);
+    const claimed = await this._withRuntimeMutation("task_claim", async () => {
+      const current = this.taskManager.claim(taskId, null);
+      if (!current) {
+        return null;
+      }
+      this._processing.add(current.prKey);
+      return cloneJson(current);
+    });
     if (!claimed) {
       return;
     }
     task = claimed;
-    this._processing.add(task.prKey);
-    await this.taskManager.save();
 
     let child;
     try {
@@ -3047,13 +3163,29 @@ class EventListener {
       return;
     }
 
-    task.runningPid = child.pid || null;
-    this.activeSubagents.set(task.prKey, {
-      taskId: task.id,
-      pid: child.pid || null,
-      startedAt: Date.now(),
+    const runningTask = await this._withRuntimeMutation("task_running_pid", async () => {
+      const current = this.taskManager.getById(task.id);
+      if (!current || current.status !== TASK_STATUS.RUNNING) {
+        return null;
+      }
+      current.runningPid = child.pid || null;
+      this.activeSubagents.set(current.prKey, {
+        taskId: current.id,
+        pid: child.pid || null,
+        startedAt: Date.now(),
+      });
+      return cloneJson(current);
     });
-    await this.taskManager.save();
+    if (!runningTask) {
+      this._processing.delete(task.prKey);
+      this.activeSubagents.delete(task.prKey);
+      await terminateChildProcess(child, {
+        signal: "SIGTERM",
+        graceMs: SUBAGENT_FORCE_KILL_GRACE_MS,
+      });
+      return;
+    }
+    task = runningTask;
     this.actionLogger.writeLine(`[${nowStamp()}] subagent_spawn pr=${task.prKey} task=${task.id} pid=${child.pid || "unknown"}`);
 
     let stdoutBuffer = "";
@@ -3068,13 +3200,15 @@ class EventListener {
 
     const touchHeartbeat = async () => {
       const heartbeatAtMs = Date.now();
-      const updated = this.taskManager.touchRunningTask(task.id, new Date(heartbeatAtMs).toISOString());
-      if (!updated || heartbeatAtMs - lastHeartbeatSaveAt < SUBAGENT_HEARTBEAT_SAVE_INTERVAL_MS) {
+      if (heartbeatAtMs - lastHeartbeatSaveAt < SUBAGENT_HEARTBEAT_SAVE_INTERVAL_MS) {
         return;
       }
       lastHeartbeatSaveAt = heartbeatAtMs;
       try {
-        await this.taskManager.save();
+        await this._withRuntimeMutation("task_heartbeat", async () => {
+          const updated = this.taskManager.touchRunningTask(task.id, new Date(heartbeatAtMs).toISOString());
+          return updated ? cloneJson(updated) : null;
+        });
       } catch (error) {
         this.actionLogger.writeLine(`[${nowStamp()}] subagent_heartbeat_save_failed pr=${task.prKey} task=${task.id} err=${truncate(error.message || error, 300)}`);
       }
@@ -3097,14 +3231,6 @@ class EventListener {
       for (const item of event.message.content) {
         if (item.type === "text" && item.text) {
           resultTextBuffer.buffer += item.text;
-          const parsed = extractTaskResultFromTextBuffer(resultTextBuffer, task);
-          if (parsed) {
-            if (parsed.valid) {
-              taskResult = parsed.payload;
-            } else {
-              invalidTaskResultReason = parsed.reason;
-            }
-          }
         }
       }
     };
@@ -3157,7 +3283,7 @@ class EventListener {
         handleStdoutLine(stdoutBuffer.trim());
       }
       if (resultTextBuffer.buffer.trim()) {
-        const parsed = parseTaskResultLine(resultTextBuffer.buffer.trim(), task);
+        const parsed = parseFinalTaskResultText(resultTextBuffer.buffer, task);
         if (parsed) {
           if (parsed.valid) {
             taskResult = parsed.payload;
@@ -3257,8 +3383,9 @@ class EventListener {
       const actionability = classifyStateBackedActionability(task.type, refreshedSnapshot);
       await this._handleTaskBlocked(task, actionability.blockReason, refreshedSnapshot, null, actionability);
       try {
-        await this._scanSnapshot(refreshedSnapshot);
-        await this.saveAll();
+        await this._withRuntimeMutation("post_unresolved_rescan", async () => {
+          await this._scanSnapshot(refreshedSnapshot);
+        });
       } catch (error) {
         this.actionLogger.writeLine(`[${nowStamp()}] post_unresolved_rescan_failed pr=${task.prKey} task=${task.id} err=${truncate(error.message || error, 300)}`);
       }
@@ -3287,8 +3414,9 @@ class EventListener {
         blockOwner: actionability.blockOwner || "human",
       });
       try {
-        await this._scanSnapshot(refreshedSnapshot);
-        await this.saveAll();
+        await this._withRuntimeMutation("post_not_actionable_rescan", async () => {
+          await this._scanSnapshot(refreshedSnapshot);
+        });
       } catch (error) {
         this.actionLogger.writeLine(`[${nowStamp()}] post_not_actionable_rescan_failed pr=${task.prKey} task=${task.id} err=${truncate(error.message || error, 300)}`);
       }
@@ -3299,15 +3427,25 @@ class EventListener {
   }
 
   async _completeTaskSuccess(task, refreshedSnapshot) {
-    this.state.applyTaskSuccess(task, refreshedSnapshot);
-    this.taskManager.remove(task.id);
-    this._processing.delete(task.prKey);
-    this.actionLogger.writeLine(`[${nowStamp()}] event_task_success pr=${task.prKey} task=${task.id} type=${task.type}`);
-    await this.saveAll();
+    const completed = await this._withRuntimeMutation("task_success", async () => {
+      const current = this.taskManager.getById(task.id);
+      if (!current) {
+        return null;
+      }
+      this.state.applyTaskSuccess(current, refreshedSnapshot);
+      this.taskManager.remove(current.id);
+      this._processing.delete(current.prKey);
+      this.actionLogger.writeLine(`[${nowStamp()}] event_task_success pr=${current.prKey} task=${current.id} type=${current.type}`);
+      return cloneJson(current);
+    });
+    if (!completed) {
+      return;
+    }
 
     try {
-      await this._scanSnapshot(refreshedSnapshot);
-      await this.saveAll();
+      await this._withRuntimeMutation("post_success_rescan", async () => {
+        await this._scanSnapshot(refreshedSnapshot);
+      });
     } catch (error) {
       this.actionLogger.writeLine(`[${nowStamp()}] post_success_rescan_failed pr=${task.prKey} task=${task.id} err=${truncate(error.message || error, 300)}`);
     }
@@ -3335,41 +3473,60 @@ class EventListener {
       blockCategory: result.blockCategory || (STATE_BACKED_TASK_TYPES.has(task.type) ? stateBackedBlockCategory(task.type) : "task-result"),
       unblockHint: result.unblockHint || null,
     };
-    const updated = this.taskManager.block(
-      task.id,
-      blockReason,
-      buildBlockedTaskDetailsFromResult(task, result, refreshedSnapshot),
-      buildBoundaryForTaskResult(task, refreshedSnapshot),
-      buildBlockMetadataFromActionability(actionability, refreshedSnapshot),
-    );
+    const updated = await this._withRuntimeMutation("task_blocked_result", async () => {
+      const current = this.taskManager.getById(task.id);
+      if (!current) {
+        return null;
+      }
+      const blocked = this.taskManager.block(
+        current.id,
+        blockReason,
+        buildBlockedTaskDetailsFromResult(current, result, refreshedSnapshot),
+        buildBoundaryForTaskResult(current, refreshedSnapshot),
+        buildBlockMetadataFromActionability(actionability, refreshedSnapshot),
+      );
+      if (!blocked) {
+        return null;
+      }
+      this._processing.delete(current.prKey);
+      this.actionLogger.writeLine(
+        `[${nowStamp()}] event_task_blocked pr=${current.prKey} task=${current.id} type=${current.type} blockReason=${blockReason} resultStatus=${result.status}`,
+      );
+      return cloneJson(blocked);
+    });
     if (!updated) {
       return;
     }
-    this._processing.delete(task.prKey);
-    this.actionLogger.writeLine(
-      `[${nowStamp()}] event_task_blocked pr=${task.prKey} task=${task.id} type=${task.type} blockReason=${blockReason} resultStatus=${result.status}`,
-    );
-    await this.taskManager.save();
   }
 
   async _handleTaskBlocked(task, blockReason, snapshot, result = null, actionability = null) {
-    const updated = this.taskManager.block(
-      task.id,
-      blockReason,
-      result
-        ? buildBlockedTaskDetailsFromResult(task, result, snapshot)
-        : buildStateBackedTaskDetails(task.type, snapshot),
-      buildBoundaryFromSnapshot(snapshot),
-      buildBlockMetadataFromActionability(actionability || classifyStateBackedActionability(task.type, snapshot), snapshot),
-    );
+    const updated = await this._withRuntimeMutation("task_blocked", async () => {
+      const current = this.taskManager.getById(task.id);
+      if (!current) {
+        return null;
+      }
+      const taskActionability = actionability || classifyStateBackedActionability(current.type, snapshot);
+      const blocked = this.taskManager.block(
+        current.id,
+        blockReason,
+        result
+          ? buildBlockedTaskDetailsFromResult(current, result, snapshot)
+          : buildStateBackedTaskDetails(current.type, snapshot),
+        buildBoundaryForTaskResult(current, snapshot),
+        buildBlockMetadataFromActionability(taskActionability, snapshot),
+      );
+      if (!blocked) {
+        return null;
+      }
+      this._processing.delete(current.prKey);
+      this.actionLogger.writeLine(
+        `[${nowStamp()}] event_task_blocked pr=${current.prKey} task=${current.id} type=${current.type} blockReason=${blockReason} trigger=${truncate(describeActiveTaskTrigger(current.type, snapshot), 300)}`,
+      );
+      return cloneJson(blocked);
+    });
     if (!updated) {
       return;
     }
-    this._processing.delete(task.prKey);
-    this.actionLogger.writeLine(
-      `[${nowStamp()}] event_task_blocked pr=${task.prKey} task=${task.id} type=${task.type} blockReason=${blockReason} trigger=${truncate(describeActiveTaskTrigger(task.type, snapshot), 300)}`,
-    );
-    await this.taskManager.save();
   }
 
   async _refreshFailureBeforeRetry(task, reason) {
@@ -3403,37 +3560,52 @@ class EventListener {
     };
 
     if (!isTaskTriggerActive(task.type, snapshot)) {
-      this.taskManager.fail(task.id, reason, options);
       try {
-        await this._scanSnapshot(snapshot);
-        await this.saveAll();
-        this.actionLogger.writeLine(
-          `[${nowStamp()}] event_failure_trigger_cleared pr=${task.prKey} task=${task.id} type=${task.type} reason=${truncate(reason, 300)}`,
-        );
+        await this._withRuntimeMutation("failure_trigger_cleared", async () => {
+          const current = this.taskManager.getById(task.id);
+          if (!current) {
+            return null;
+          }
+          this.taskManager.fail(current.id, reason, options);
+          await this._scanSnapshot(snapshot);
+          this.actionLogger.writeLine(
+            `[${nowStamp()}] event_failure_trigger_cleared pr=${current.prKey} task=${current.id} type=${current.type} reason=${truncate(reason, 300)}`,
+          );
+          return cloneJson(current);
+        });
       } catch (error) {
         this.actionLogger.writeLine(
           `[${nowStamp()}] event_failure_refresh_failed pr=${task.prKey} task=${task.id} type=${task.type} reason=${truncate(error.message || error, 300)}`,
         );
-        await this.taskManager.save();
       }
       return { handled: true, options };
     }
 
     const actionability = classifyStateBackedActionability(task.type, snapshot);
     if (actionability.shouldBlock) {
-      const updated = this.taskManager.block(
-        task.id,
-        actionability.blockReason,
-        options.details,
-        options.boundary,
-        buildBlockMetadataFromActionability(actionability, snapshot),
-      );
-      if (updated) {
-        this._processing.delete(task.prKey);
-        this.actionLogger.writeLine(
-          `[${nowStamp()}] event_task_blocked pr=${task.prKey} task=${task.id} type=${task.type} blockReason=${actionability.blockReason} trigger=${truncate(describeActiveTaskTrigger(task.type, snapshot), 300)}`,
+      const updated = await this._withRuntimeMutation("failure_actionability_block", async () => {
+        const current = this.taskManager.getById(task.id);
+        if (!current) {
+          return null;
+        }
+        const blocked = this.taskManager.block(
+          current.id,
+          actionability.blockReason,
+          options.details,
+          buildBoundaryForTaskResult(current, snapshot),
+          buildBlockMetadataFromActionability(actionability, snapshot),
         );
-        await this.taskManager.save();
+        if (!blocked) {
+          return null;
+        }
+        this._processing.delete(current.prKey);
+        this.actionLogger.writeLine(
+          `[${nowStamp()}] event_task_blocked pr=${current.prKey} task=${current.id} type=${current.type} blockReason=${actionability.blockReason} trigger=${truncate(describeActiveTaskTrigger(current.type, snapshot), 300)}`,
+        );
+        return cloneJson(blocked);
+      });
+      if (updated) {
+        return { handled: true, options };
       }
       return { handled: true, options };
     }
@@ -3447,14 +3619,23 @@ class EventListener {
       return;
     }
 
-    const updated = this.taskManager.fail(task.id, reason, refreshed.options);
+    const updated = await this._withRuntimeMutation("task_failure", async () => {
+      const current = this.taskManager.getById(task.id);
+      if (!current) {
+        return null;
+      }
+      const failed = this.taskManager.fail(current.id, reason, refreshed.options);
+      if (!failed) {
+        return null;
+      }
+      this.actionLogger.writeLine(
+        `[${nowStamp()}] event_task_failed pr=${current.prKey} task=${current.id} type=${current.type} status=${failed.status} attempts=${failed.attemptCount} next_retry=${failed.nextRetryAt || "none"} reason=${truncate(reason, 300)}`,
+      );
+      return cloneJson(failed);
+    });
     if (!updated) {
       return;
     }
-    this.actionLogger.writeLine(
-      `[${nowStamp()}] event_task_failed pr=${task.prKey} task=${task.id} type=${task.type} status=${updated.status} attempts=${updated.attemptCount} next_retry=${updated.nextRetryAt || "none"} reason=${truncate(reason, 300)}`,
-    );
-    await this.taskManager.save();
   }
 }
 
@@ -3463,6 +3644,7 @@ async function refreshEventJsonOnce(options = {}, actionLogger = { writeLine() {
   const listener = options.listener || new EventListener({
     cwd: path.resolve(options.cwd || DEFAULTS.cwd),
     claudeCommand: options.claudeCommand || DEFAULTS.claudeCommand,
+    effort: options.effort || DEFAULTS.effort,
     eventPollIntervalMs: options.eventPollIntervalMs || DEFAULTS.eventPollIntervalMs,
     eventNotificationEnabled: options.eventNotificationEnabled === true,
     enableTaskDispatch: false,
@@ -3616,6 +3798,7 @@ async function main() {
   const eventListener = new EventListener({
     cwd,
     claudeCommand: config.claudeCommand,
+    effort: config.effort,
     eventPollIntervalMs: config.eventPollIntervalMs,
     eventNotificationEnabled: config.eventNotificationEnabled,
     enableTaskDispatch: config.enableEventListener,
@@ -3875,6 +4058,7 @@ if (require.main === module) {
     normalizeTaskRecord,
     normalizeCommentBaselines,
     normalizeCommentCursorSet,
+    parseFinalTaskResultText,
     parseTaskResultLine,
     parseRetryTimestampMs,
     parseOwnerRepoFromRepositoryUrl,

@@ -367,8 +367,9 @@ PR 提交后，工作没有结束。
 - `CI_PASSED`、`REVIEW_APPROVED`、`READY_TO_MERGE` 只通知，不写 task。
 - `READY_TO_MERGE` 默认要求 `reviewDecision=APPROVED`。若 `agent.config.json` 的 `readyToMergeReviewMode` 或 CLI 参数 `--ready-to-merge-review-mode` 设置为 `allow-no-review-required`，则 `reviewDecision=null` 且 CI 成功、可合并、无 unresolved review threads 的 PR 也可触发通知；`CHANGES_REQUESTED` 和 `REVIEW_REQUIRED` 仍不会触发。
 - 去重语义是“同 `prKey + type` 的 task 仍存在时不重复建 task”，不是全局唯一。
-- task 成功后会直接从 `event_task.json` 删除：subagent 完成时输出结构化 `task result`，由 launcher 自动删除、block 或 retry；失败会重试，达到上限后进入 `dead`。
+- task 成功后会直接从 `event_task.json` 删除：subagent 完成时输出带 `nonce` 的结构化 `task result`，由 launcher 自动删除、block 或 retry；失败会重试，达到上限后进入 `dead`。
 - 主代理不直接处理、删除或手工编辑 task。只有在 listener 已停止、且需要人工维护运行时 JSON 时，才按 `doc/event-task-state-maintenance.md` 更新 `event_state.json` 的 handled baseline 并清理对应 task；只删除 `event_task.json` 不代表事件已处理，下一次扫描可能重新生成同类 task。
+- listener 保存 runtime JSON 前会重读并校验磁盘内容；如检测到外部写入，会重载并重放本轮 mutation，避免旧内存状态覆盖磁盘变更。
 - `CI_FAILURE`、`REVIEW_CHANGES_REQUESTED`、`NEEDS_REBASE` 这类状态型 task 只有在 GitHub 最新状态里的触发条件消失后才允许清除；如果 subagent 报告 `resolved` 但触发条件仍存在，应进入 `blocked`；如果报告 `blocked` / `needs_human`，launcher 直接保留为 `blocked`。
 - 状态型 task 会先按 actionability 分类：明确需要 contributor、maintainer、人类决策或基础设施处理的任务直接 `blocked`；agent 可行动或无法确定的任务才允许自动派发。
 - `pending` / `dead` task 只在底层触发条件仍然成立时继续保留；如果触发条件消失，会在后续扫描中自动回收，不再阻塞 dedupe。
@@ -393,7 +394,7 @@ PR 提交后，工作没有结束。
 
 `blocked` task 通过 `blockOwner`、`blockCategory`、`unblockHint` 和 `blockedSnapshot` 说明阻塞责任、类别、解除条件和当时看到的 GitHub 状态；不要把 `needs_human` 或 `needs-contributor-action` 当作独立 status。
 
-`running` task 会记录 `claimedAt`、`runningPid` 和 `lastOutputAt`；重启恢复时优先按最后输出时间判断是否超时。
+`running` task 会记录 `claimedAt`、`runningPid`、`lastOutputAt` 和一次性 `resultNonce`；subagent 最终输出的 `task result` 必须匹配该 nonce，重启恢复时优先按最后输出时间判断是否超时。
 
 如果 `dead` task 阻塞了后续同类事件，必须先停止 listener，再选择以下人工处理方式之一：
 
