@@ -433,13 +433,23 @@ PR 提交后，工作没有结束。
 - 基于证据。
 - 不把猜测写成事实。
 - 不使用营销式表达。
-- 不用“做了一些优化”“修复若干问题”这类空话。
+- 不用”做了一些优化””修复若干问题”这类空话。
+
+**评论风格（Review 回复、PR 评论、Issue 回复）：**
+- 简洁直接，一句话说清楚。不啰嗦，不展开解释背景，不写长篇解释。
+- 像人类写的，不要像 AI 生成的。不要有多余的礼貌词、自我说明、连续多段的长解释。
+- 宁可短，不要长。每条评论尽量控制在 1-3 句话。
+- 如果需要解释 why，控制在 1 段以内，不要分点列一大段。
 
 推荐写法：
 
 - `fix README install command by adding the missing --config flag`
 - `add regression coverage for empty parser input`
 - `handle null payload before reading nested fields`
+
+禁止写成长篇 AI 回复的样子，例如：
+- 先说 “Thanks for the review!” 再道歉再解释背景再分点说改了什么 — 压缩成一句。
+- 分 3-4 段、每段 3-4 句话的解释 — 改成 1-2 句核心信息。
 
 ---
 
