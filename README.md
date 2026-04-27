@@ -136,6 +136,7 @@ node run-claude-agent.js \
 - 发送初始 prompt。
 - 在长时间无输出时自动补发提醒。
 - 可选轮询 GitHub PR 事件并提醒处理 review、CI、评论和 merge 状态变化。
+- 默认在终端显示主 Claude thinking 事件和 subagent 输出；subagent 输出带 `[subagent#N]` 编号。
 - 写入结构化运行日志。
 
 脚本只负责调度。是否值得改、怎么改、怎么验证、是否提交 PR，仍以 `AGENT.md` 和 `doc/pr_rule.md` 为准。
@@ -161,7 +162,10 @@ node run-claude-agent.js \
 | `--prompt` | 内置提示 | 发送给 Claude 的初始提示和后续提醒内容 |
 | `--claude-command` | Windows: `claude.cmd`；其他平台: `claude` | Claude CLI 命令 |
 | `--effort` | `max` | Claude 思考强度：`low` / `middle` / `high` / `xhigh` / `max`；主 Agent 与 subagent 共用 |
-| `--show-thinking` | `false` | 在终端显示 thinking 事件 |
+| `--show-thinking` | `true` | 在终端显示主 Claude thinking 事件 |
+| `--no-show-thinking` | - | 隐藏主 Claude thinking 事件 |
+| `--show-subagent-output` | `true` | 在终端显示 subagent 输出；多个 subagent 使用 `[subagent#N]` 编号 |
+| `--no-show-subagent-output` | - | 隐藏 subagent 终端输出 |
 | `--show-raw-events` | `false` | 打印原始 JSON 事件 |
 | `--help`, `-h` | - | 显示帮助 |
 
@@ -210,7 +214,7 @@ node run-claude-agent.js \
 事件监听的硬规则：
 
 - 只有启用 `--enable-event-listener` 时，启动阶段才会调用 `generateEventJson()` 刷新 `event_state.json` / `event_task.json`；普通 `node run-claude-agent.js` 不刷新 PR event JSON，不生成无人派发的 task。
-- event listener 启动刷新、每次轮询和 `update.sh` 必须调用同一个 `generateEventJson()` 入口；subagent 派发只能发生在该入口完成并保存之后，启动刷新产生的 runnable task 也由 launcher/subagent claim，不交给主 Agent 手工处理。open PR search 失败时本轮不派发任何旧 task；单个 PR snapshot 刷新失败时，本轮跳过该 `prKey` 的 task 派发，避免基于陈旧快照启动 subagent。
+- event listener 启动刷新、每次轮询和 `update.sh` 必须调用同一个 `generateEventJson()` 入口；当该入口成功完成并保存后，subagent 派发基于本轮刷新结果，启动刷新产生的 runnable task 也由 launcher/subagent claim，不交给主 Agent 手工处理。open PR search 失败时本轮不刷新 JSON，但仍会派发已有到期 retry task，避免队列冻结；单个 PR snapshot 刷新失败时，本轮跳过该 `prKey` 的 task 派发，避免基于陈旧快照启动 subagent。
 - 只要 `event_task.json` 中仍存在同 `prKey + type` 的 task，就视为去重命中，不会重复建 task。
 - task 成功后直接从 `event_task.json` 删除，不保留 handled 历史项；subagent 完成时输出带 `nonce` 的结构化 `task result`，由 launcher 自动删除、block 或 retry。comment-backed task 的 `resolved` / `not_actionable` 结果还必须带 `evidence`（例如 `replyUrl`、`checkedCommand`、`reasonCategory` 或 `rationale`），否则 launcher 会拒绝结果并保持 task 可重试，防止 PR comment 注入伪造完成信号。
 - 主 Agent 不直接处理、删除或手工编辑 task。只有在 listener 已停止、且需要人工维护运行时 JSON 时，才按 `doc/event-task-state-maintenance.md` 更新 `event_state.json` 的 handled baseline 并清理对应 task。

@@ -33,7 +33,8 @@ const DEFAULTS = {
   effort: "max",
   prompt: buildDefaultPrompt(),
   logDirName: ".claude_agent_logs",
-  showThinking: false,
+  showThinking: true,
+  showSubagentOutput: true,
   showRawEvents: false,
   enableEventListener: false,
   eventPollIntervalMs: 3600000,
@@ -247,6 +248,15 @@ function parseArgs(argv) {
       case "--show-thinking":
         config.showThinking = true;
         break;
+      case "--no-show-thinking":
+        config.showThinking = false;
+        break;
+      case "--show-subagent-output":
+        config.showSubagentOutput = true;
+        break;
+      case "--no-show-subagent-output":
+        config.showSubagentOutput = false;
+        break;
       case "--show-raw-events":
         config.showRawEvents = true;
         break;
@@ -328,7 +338,10 @@ function printHelp() {
       "  --prompt <text>               首条提示和补发提示内容",
       "  --claude-command <cmd>        Claude 可执行命令，默认 claude.cmd / claude",
       "  --effort <mode>               思考深度：low/middle/high/xhigh/max，默认 max",
-      "  --show-thinking               在终端显示 thinking 事件",
+      "  --show-thinking               在终端显示主 Claude thinking 事件（默认开启）",
+      "  --no-show-thinking            隐藏主 Claude thinking 事件",
+      "  --show-subagent-output        在终端显示 subagent 输出（默认开启，带 subagent 编号）",
+      "  --no-show-subagent-output     隐藏 subagent 终端输出",
       "  --show-raw-events             直接打印原始 JSON 事件",
       "  --enable-event-listener       启用 GitHub 事件监听（默认轮询间隔 3600000ms）",
       "  --event-poll-interval <n>     事件检测间隔（毫秒），默认 3600000（1小时）",
@@ -450,6 +463,22 @@ function printWarn(message) {
 
 function printError(message) {
   process.stderr.write(`${color("[error]", "31")} ${message}\n`);
+}
+
+function writePrefixedLines(prefix, text, stream = process.stdout) {
+  const normalized = String(text || "").replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+  if (!normalized) {
+    return;
+  }
+  const withoutTrailingNewline = normalized.endsWith("\n") ? normalized.slice(0, -1) : normalized;
+  for (const line of withoutTrailingNewline.split("\n")) {
+    stream.write(`${prefix} ${line}\n`);
+  }
+}
+
+function formatResultSummary(event) {
+  const cost = typeof event.total_cost_usd === "number" ? event.total_cost_usd.toFixed(6) : "n/a";
+  return `${event.subtype || "done"} turns=${event.num_turns ?? "?"} cost=$${cost}`;
 }
 
 function createJsonUserEvent(text) {
@@ -1681,10 +1710,42 @@ function parseFinalTaskResultText(text, task) {
   if (!trimmed) {
     return null;
   }
-  if (/[\r\n]/.test(trimmed)) {
-    return { valid: false, reason: "task_result_not_final_unique_line" };
+  const lines = trimmed
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const resultLines = lines.filter((line) => line.startsWith(TASK_RESULT_PREFIX));
+  if (resultLines.length === 0) {
+    return null;
   }
-  return parseTaskResultLine(trimmed, task);
+  if (!lines[lines.length - 1].startsWith(TASK_RESULT_PREFIX)) {
+    return { valid: false, reason: "task_result_not_final_line" };
+  }
+
+  const validResults = [];
+  const invalidReasons = [];
+  for (const line of resultLines) {
+    const parsed = parseTaskResultLine(line, task);
+    if (!parsed) {
+      continue;
+    }
+    if (parsed.valid) {
+      validResults.push(parsed);
+    } else {
+      invalidReasons.push(parsed.reason || "task_result_invalid");
+    }
+  }
+
+  if (validResults.length === 1) {
+    return validResults[0];
+  }
+  if (validResults.length > 1) {
+    return { valid: false, reason: "task_result_multiple_valid_lines" };
+  }
+  if (invalidReasons.length > 0) {
+    return { valid: false, reason: invalidReasons[0] };
+  }
+  return null;
 }
 
 function parseTaskResultLine(line, task) {
@@ -2588,6 +2649,7 @@ class EventTaskManager {
 
 class EventListener {
   constructor(config, actionLogger) {
+    config = { showSubagentOutput: DEFAULTS.showSubagentOutput, ...config };
     this.config = config;
     this.actionLogger = actionLogger;
     this.state = new EventState({ filePath: config.stateFile || STATE_FILE });
@@ -2604,6 +2666,7 @@ class EventListener {
     this.fetchPrSnapshot = config.fetchPrSnapshot || fetchPrSnapshot;
     this.fetchPrTerminalStatus = config.fetchPrTerminalStatus || fetchPrTerminalStatus;
     this.activeSubagents = new Map();
+    this._nextSubagentTerminalId = 1;
     this.terminalPrs = new Set();
     this._runtimeMutationQueue = Promise.resolve();
     this.lastRefreshResult = null;
@@ -2874,11 +2937,15 @@ class EventListener {
 
   async _runPollCycle() {
     const generated = await this.generateEventJson();
-    if (generated === false) {
+    const refreshResult = this.lastRefreshResult || {};
+    if (generated === false && refreshResult.searchFailed !== true) {
       return;
     }
+    if (generated === false && refreshResult.searchFailed === true) {
+      this.actionLogger.writeLine(`[${nowStamp()}] event_dispatch_after_refresh_failure reason=search_failed`);
+    }
     await this._dispatchRunnableTasks({
-      skipPrKeys: new Set(this.lastRefreshResult?.failedPrKeys || []),
+      skipPrKeys: new Set(refreshResult.failedPrKeys || []),
     });
   }
 
@@ -3382,6 +3449,7 @@ class EventListener {
       return;
     }
 
+    const subagentLabel = `subagent#${this._nextSubagentTerminalId++}`;
     const runningTask = await this._withRuntimeMutation("task_running_pid", async () => {
       const current = this.taskManager.getById(task.id);
       if (!current || current.status !== TASK_STATUS.RUNNING) {
@@ -3392,6 +3460,7 @@ class EventListener {
         taskId: current.id,
         pid: child.pid || null,
         startedAt: Date.now(),
+        terminalLabel: subagentLabel,
       });
       return cloneJson(current);
     });
@@ -3405,10 +3474,11 @@ class EventListener {
       return;
     }
     task = runningTask;
-    this.actionLogger.writeLine(`[${nowStamp()}] subagent_spawn pr=${task.prKey} task=${task.id} pid=${child.pid || "unknown"}`);
+    this.actionLogger.writeLine(`[${nowStamp()}] subagent_spawn pr=${task.prKey} task=${task.id} pid=${child.pid || "unknown"} label=${subagentLabel}`);
 
     let stdoutBuffer = "";
     const resultTextBuffer = { buffer: "" };
+    const seenSubagentToolUses = new Set();
     let taskResult = null;
     let invalidTaskResultReason = null;
     let spawnError = null;
@@ -3442,7 +3512,13 @@ class EventListener {
         event = JSON.parse(line);
       } catch {
         this.actionLogger.writeLine(`[${nowStamp()}] subagent_stdout_parse_failed pr=${task.prKey} line=${truncate(line, 200)}`);
+        if (this.config.showSubagentOutput) {
+          writePrefixedLines(color(`[${subagentLabel}]`, "34"), line);
+        }
         return;
+      }
+      if (this.config.showSubagentOutput) {
+        renderSubagentEvent(event, subagentLabel, seenSubagentToolUses);
       }
       if (event.type !== "assistant" || !event.message || !Array.isArray(event.message.content)) {
         return;
@@ -3472,6 +3548,9 @@ class EventListener {
       for (const line of text.split(/\r?\n/)) {
         if (line.trim()) {
           this.actionLogger.writeLine(`[${nowStamp()}] subagent_stderr pr=${task.prKey} task=${task.id} ${truncate(line.trim(), 200)}`);
+          if (this.config.showSubagentOutput) {
+            writePrefixedLines(`${color(`[${subagentLabel}]`, "34")} ${color("[stderr]", "31")}`, line.trim());
+          }
         }
       }
     });
@@ -3958,7 +4037,7 @@ function renderAssistantEvent(event, config, seenToolUses) {
     }
 
     if (item.type === "thinking" && config.showThinking && item.thinking) {
-      process.stdout.write(`${color("[thinking]", "90")} ${item.thinking}\n`);
+      writePrefixedLines(color("[thinking]", "90"), item.thinking);
       continue;
     }
 
@@ -3967,6 +4046,36 @@ function renderAssistantEvent(event, config, seenToolUses) {
       const inputPreview = item.input ? truncate(JSON.stringify(item.input)) : "";
       process.stdout.write(`${color("[tool]", "35")} ${item.name}${inputPreview ? ` ${inputPreview}` : ""}\n`);
     }
+  }
+}
+
+function renderSubagentEvent(event, label, seenToolUses) {
+  const prefix = color(`[${label}]`, "34");
+  if (event.type === "assistant") {
+    const { message } = event;
+    if (!message || !Array.isArray(message.content)) {
+      return;
+    }
+    for (const item of message.content) {
+      if (item.type === "thinking" && item.thinking) {
+        writePrefixedLines(`${prefix} ${color("[thinking]", "90")}`, item.thinking);
+        continue;
+      }
+      if (item.type === "text" && item.text) {
+        writePrefixedLines(prefix, item.text);
+        continue;
+      }
+      if (item.type === "tool_use" && item.id && !seenToolUses.has(item.id)) {
+        seenToolUses.add(item.id);
+        const inputPreview = item.input ? truncate(JSON.stringify(item.input)) : "";
+        process.stdout.write(`${prefix} ${color("[tool]", "35")} ${item.name}${inputPreview ? ` ${inputPreview}` : ""}\n`);
+      }
+    }
+    return;
+  }
+
+  if (event.type === "result") {
+    process.stdout.write(`${prefix} ${color("[result]", "32")} ${formatResultSummary(event)}\n`);
   }
 }
 
@@ -4024,6 +4133,8 @@ async function main() {
   printInfo(`空闲阈值: ${config.idleSeconds}s`);
   printInfo(`首次提示延迟: ${config.initialDelaySeconds}s`);
   printInfo(`补发冷却: ${config.nudgeCooldownSeconds}s`);
+  printInfo(`主 Claude thinking 输出: ${config.showThinking ? "开启" : "关闭"}`);
+  printInfo(`Subagent 终端输出: ${config.showSubagentOutput ? "开启" : "关闭"}`);
 
   actionLogger.writeLine(`===== bootstrap ${nowStamp()} =====`);
   actionLogger.writeLine(`cwd=${cwd}`);
@@ -4031,6 +4142,8 @@ async function main() {
   actionLogger.writeLine(`effort=${config.effort}`);
   actionLogger.writeLine(`enableEventListener=${config.enableEventListener}`);
   actionLogger.writeLine(`eventPollIntervalMs=${config.eventPollIntervalMs}`);
+  actionLogger.writeLine(`showThinking=${config.showThinking}`);
+  actionLogger.writeLine(`showSubagentOutput=${config.showSubagentOutput}`);
   actionLogger.writeLine(`readyToMergeReviewMode=${config.readyToMergeReviewMode}`);
   actionLogger.writeLine(`git_status=${gitStatus}`);
   actionLogger.writeLine(`prompt=${config.prompt}`);
@@ -4042,6 +4155,7 @@ async function main() {
     eventPollIntervalMs: config.eventPollIntervalMs,
     eventNotificationEnabled: config.eventNotificationEnabled,
     enableTaskDispatch: config.enableEventListener,
+    showSubagentOutput: config.showSubagentOutput,
     readyToMergeReviewMode: config.readyToMergeReviewMode,
   }, actionLogger);
   if (config.enableEventListener) {
@@ -4158,8 +4272,7 @@ async function main() {
     }
 
     if (event.type === "result") {
-      const cost = typeof event.total_cost_usd === "number" ? event.total_cost_usd.toFixed(6) : "n/a";
-      process.stdout.write(`${color("[result]", "32")} ${event.subtype || "done"} turns=${event.num_turns ?? "?"} cost=$${cost}\n`);
+      process.stdout.write(`${color("[result]", "32")} ${formatResultSummary(event)}\n`);
       return;
     }
 

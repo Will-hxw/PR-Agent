@@ -166,6 +166,10 @@ function runProcess(command, args, options = {}) {
   });
 }
 
+function stripAnsi(text) {
+  return String(text).replace(/\u001b\[[0-9;]*m/g, "");
+}
+
 async function createFakeClaudeCommand(dir) {
   if (process.platform === "win32") {
     const commandPath = path.join(dir, "fake-claude.cmd");
@@ -592,7 +596,7 @@ test("subagent prompt isolates untrusted PR activity details", () => {
 });
 
 test("subagent does not accept an echoed prompt example as task result", async () => {
-  const listener = createListener();
+  const listener = createListener({ showSubagentOutput: false });
   listener.saveAll = async () => {};
   const child = new EventEmitter();
   child.stdout = new EventEmitter();
@@ -628,11 +632,11 @@ test("subagent does not accept an echoed prompt example as task result", async (
 
   const updated = listener.taskManager.getById(task.id);
   assert.equal(updated.status, agent.TASK_STATUS.PENDING);
-  assert.match(updated.lastError, /task_result_not_final_unique_line|task_result_payload_mismatch|missing_task_result/);
+  assert.match(updated.lastError, /task_result_not_final_unique_line|task_result_not_final_line|task_result_payload_mismatch|missing_task_result/);
 });
 
 test("comment task result with valid nonce still requires evidence", async () => {
-  const listener = createListener();
+  const listener = createListener({ showSubagentOutput: false });
   listener.saveAll = async () => {};
   const child = new EventEmitter();
   child.stdout = new EventEmitter();
@@ -818,7 +822,7 @@ test("task result parser requires nonce for claimed tasks", () => {
   })}`, task).valid, false);
 });
 
-test("final task result must be the only assistant text line", () => {
+test("final task result can be extracted from assistant text with chatter", () => {
   const task = makeTask({
     id: "result-task",
     prKey: "demo/repo#7",
@@ -835,8 +839,13 @@ test("final task result must be the only assistant text line", () => {
   })}`;
 
   assert.equal(agent.parseFinalTaskResultText(line, task).valid, true);
-  assert.equal(agent.parseFinalTaskResultText(`Done.\n${line}`, task).valid, false);
+  assert.equal(agent.parseFinalTaskResultText(`Done.\n${line}`, task).valid, true);
   assert.equal(agent.parseFinalTaskResultText(`${line}\nDone.`, task).valid, false);
+  assert.equal(agent.parseFinalTaskResultText(`${line}\n${line}`, task).valid, false);
+  assert.equal(
+    agent.parseFinalTaskResultText(`Done.\n__EVENT_RESULT__ {"version":2,"eventId":"other"}`, task).valid,
+    false,
+  );
 });
 
 test("dedupe helper matches any existing task for the same PR and type", () => {
@@ -1056,7 +1065,7 @@ test("startup and polling use the same JSON generation path", async () => {
   assert.deepStrictEqual(calls, ["generate", "dispatch"]);
 });
 
-test("poll cycle search failure does not dispatch stale tasks", async () => {
+test("poll cycle search failure still dispatches existing retryable tasks", async () => {
   const listener = createListener();
   let dispatchCount = 0;
   listener.generateEventJson = async () => {
@@ -1075,8 +1084,32 @@ test("poll cycle search failure does not dispatch stale tasks", async () => {
 
   await listener._runPollCycle();
 
-  assert.equal(dispatchCount, 0);
+  assert.equal(dispatchCount, 1);
   assert.equal(listener.lastRefreshResult.searchFailed, true);
+  assert.ok(listener.actionLogger.lines.some((line) => line.includes("event_dispatch_after_refresh_failure")));
+});
+
+test("poll cycle active listener lock does not dispatch existing tasks", async () => {
+  const listener = createListener();
+  let dispatchCount = 0;
+  listener.generateEventJson = async () => {
+    listener.lastRefreshResult = {
+      ok: false,
+      searchFailed: false,
+      failedPrKeys: [],
+      scannedPrKeys: [],
+      skippedReason: "active_listener_lock",
+    };
+    return false;
+  };
+  listener._dispatchRunnableTasks = async () => {
+    dispatchCount += 1;
+  };
+
+  await listener._runPollCycle();
+
+  assert.equal(dispatchCount, 0);
+  assert.equal(listener.lastRefreshResult.skippedReason, "active_listener_lock");
 });
 
 test("poll cycle suppresses dispatch for PRs whose snapshot refresh failed", async () => {
@@ -2404,6 +2437,72 @@ test("subagent output updates running heartbeat", async () => {
 
   child.emit("close", 1, null);
   await waitFor(() => listener.taskManager.getById(task.id)?.status === agent.TASK_STATUS.PENDING);
+});
+
+test("subagent output is printed with numbered terminal prefix by default", async () => {
+  const listener = createListener();
+  listener.saveAll = async () => {};
+  const child = new EventEmitter();
+  child.stdout = new EventEmitter();
+  child.stderr = new EventEmitter();
+  child.stdin = {
+    write() {},
+    end() {},
+  };
+  child.pid = 4568;
+  listener._spawnSubagent = () => child;
+
+  const task = listener.taskManager.add(
+    "demo/repo#13",
+    "NEW_COMMENT",
+    agent.TASK_EVENT_SEVERITY.NEW_COMMENT,
+    { snapshotSummary: "comment" },
+    agent.normalizeBoundary(null),
+  );
+
+  let output = "";
+  const originalWrite = process.stdout.write;
+  process.stdout.write = function captureStdout(chunk, encoding, callback) {
+    output += Buffer.isBuffer(chunk) ? chunk.toString("utf8") : String(chunk);
+    if (typeof encoding === "function") {
+      encoding();
+    } else if (typeof callback === "function") {
+      callback();
+    }
+    return true;
+  };
+
+  try {
+    await listener._startTask(task);
+    child.stdout.emit("data", Buffer.from(`${JSON.stringify({
+      type: "assistant",
+      message: {
+        content: [
+          { type: "thinking", thinking: "checking current PR state" },
+          { type: "tool_use", id: "tool-1", name: "Read", input: { file_path: "event_task.json" } },
+          { type: "text", text: "subagent visible text" },
+        ],
+      },
+    })}\n`));
+    child.stderr.emit("data", Buffer.from("subagent stderr line\n"));
+    child.stdout.emit("data", Buffer.from(`${JSON.stringify({
+      type: "result",
+      subtype: "success",
+      num_turns: 1,
+      total_cost_usd: 0.25,
+    })}\n`));
+    child.emit("close", 1, null);
+    await waitFor(() => listener.taskManager.getById(task.id)?.status === agent.TASK_STATUS.PENDING);
+  } finally {
+    process.stdout.write = originalWrite;
+  }
+
+  const plain = stripAnsi(output);
+  assert.match(plain, /\[subagent#1\] \[thinking\] checking current PR state/);
+  assert.match(plain, /\[subagent#1\] \[tool\] Read \{"file_path":"event_task\.json"\}/);
+  assert.match(plain, /\[subagent#1\] subagent visible text/);
+  assert.match(plain, /\[subagent#1\] \[stderr\] subagent stderr line/);
+  assert.match(plain, /\[subagent#1\] \[result\] success turns=1 cost=\$0\.250000/);
 });
 
 test("CI retry refreshes failing checks before dispatch", async () => {
