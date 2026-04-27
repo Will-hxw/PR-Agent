@@ -194,14 +194,12 @@ node run-claude-agent.js --no-event-listener
 
 事件模型分为两类：
 
-- task-backed：`CI_FAILURE`、`REVIEW_CHANGES_REQUESTED`、`MAINTAINER_COMMENT`、`BOT_COMMENT`、`NEW_COMMENT`、`NEEDS_REBASE`、`STALE_AUTHOR_NUDGE`
+- task-backed：`CI_FAILURE`、`REVIEW_CHANGES_REQUESTED`、`MAINTAINER_COMMENT`、`BOT_COMMENT`、`NEW_COMMENT`、`NEEDS_REBASE`
 - notify-only：`CI_PASSED`、`REVIEW_APPROVED`、`READY_TO_MERGE`
 
 `READY_TO_MERGE` 默认要求 `reviewDecision=APPROVED`，以保持既有行为。没有强制 review 的仓库如需在 `reviewDecision=null` 且 CI 成功、可合并、无 unresolved review threads 时也发出 ready 通知，可设置 `readyToMergeReviewMode: "allow-no-review-required"` 或启动参数 `--ready-to-merge-review-mode allow-no-review-required`。该模式不会放行 `CHANGES_REQUESTED` 或 `REVIEW_REQUIRED`。
 
 `mergeStateStatus=BLOCKED` 是 GitHub 的汇总状态信号，本身不生成 task 或 notify；实际 task/notify 仍由 `statusCheckRollup`、`reviewDecision`、`mergeable`、`isDraft`、`unresolvedReviewThreadCount` 等具体字段决定。`NEEDS_REBASE` 只由 `BEHIND`、`DIRTY` 或 `mergeable=CONFLICTING` 触发。
-
-`STALE_AUTHOR_NUDGE` 用于防止 PR 沉睡：同一个 PR 已被 listener 观察过，当前没有 CI failure、pending check、changes requested、rebase/冲突、draft 或 unresolved review thread，且 GitHub `updatedAt` 距当前超过 24 小时时，会生成 task。该 task 的处理要求是重新确认 PR 仍无问题且静默超过 24 小时，然后发一条短评论 `@<author> 需要处理了`。
 
 事件监听的硬规则：
 
@@ -212,7 +210,7 @@ node run-claude-agent.js --no-event-listener
 - 主 Agent 不直接处理、删除或手工编辑 task。只有在 listener 已停止、且需要人工维护运行时 JSON 时，才按 `doc/event-task-state-maintenance.md` 更新 `event_state.json` 的 handled baseline 并清理对应 task。
 - listener 每次写入前会重读并校验 runtime JSON；如果保存前发现外部写入，会重载并重放本轮 mutation，降低旧内存状态覆盖磁盘变更的风险。这不是运行中手工编辑接口，listener 运行期间不要并行改 JSON。
 - task 失败最多自动尝试 5 次；超过上限后变成 `dead`。`dead` 只在底层触发条件仍然存在时继续阻塞同类事件；如果触发条件消失，会在后续扫描中自动回收。
-- `CI_FAILURE`、`REVIEW_CHANGES_REQUESTED`、`NEEDS_REBASE`、`STALE_AUTHOR_NUDGE` 这类状态型 task 只有在 GitHub 最新状态里的触发条件消失后才允许清除；如果 subagent 报告 `resolved` 但触发条件仍存在，应进入 `blocked`，如果报告 `blocked` / `needs_human`，launcher 直接保留为 `blocked`。
+- `CI_FAILURE`、`REVIEW_CHANGES_REQUESTED`、`NEEDS_REBASE` 这类状态型 task 只有在 GitHub 最新状态里的触发条件消失后才允许清除；如果 subagent 报告 `resolved` 但触发条件仍存在，应进入 `blocked`，如果报告 `blocked` / `needs_human`，launcher 直接保留为 `blocked`。
 - 状态型 task 在扫描和失败重试前会先做 actionability 分类：明确需要 contributor、maintainer、人类决策或基础设施处理的任务直接进入 `blocked`，只有 agent 可行动或无法确定的任务才会进入自动派发。
 - 成功后的状态刷新以 GitHub 最新数据为准；评论类 cursor 只推进到 task 创建时的 boundary，然后立即对该 PR 局部重扫，避免吞掉处理中途到达的新评论。
 - 评论 backlog 按 `MAINTAINER_COMMENT`、`BOT_COMMENT`、`NEW_COMMENT` 三类独立跟踪，同一轮扫描里最多可并存三条评论 task。

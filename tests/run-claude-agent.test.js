@@ -298,17 +298,6 @@ test("state-backed trigger helper tracks active PR states", () => {
     mergeable: "MERGEABLE",
     unresolvedReviewThreadCount: 0,
   })), false);
-  assert.equal(agent.isTaskTriggerActive("STALE_AUTHOR_NUDGE", makeSnapshot({
-    updatedAt: "2000-01-01T00:00:00.000Z",
-    statusCheckState: "SUCCESS",
-    reviewDecision: "APPROVED",
-    mergeable: "MERGEABLE",
-    unresolvedReviewThreadCount: 0,
-  })), true);
-  assert.equal(agent.isStaleAuthorNudgeFromRaw(makeSnapshot({
-    updatedAt: "2000-01-01T00:00:00.000Z",
-    statusCheckState: "FAILED",
-  })), false);
 });
 
 test("mergeStateStatus BLOCKED alone is not task-backed", async () => {
@@ -320,56 +309,6 @@ test("mergeStateStatus BLOCKED alone is not task-backed", async () => {
     mergeable: "MERGEABLE",
     statusCheckState: "SUCCESS",
     reviewDecision: "APPROVED",
-  }));
-
-  assert.equal(listener.taskManager.events.length, 0);
-});
-
-test("issue-free quiet PR creates stale author nudge only after it was observed", async () => {
-  const listener = createListener();
-  const quietSnapshot = makeSnapshot({
-    prKey: "demo/repo#34",
-    updatedAt: "2000-01-01T00:00:00.000Z",
-    statusCheckState: "SUCCESS",
-    reviewDecision: "APPROVED",
-    mergeable: "MERGEABLE",
-    unresolvedReviewThreadCount: 0,
-  });
-
-  await listener._scanSnapshot(quietSnapshot);
-  assert.equal(listener.taskManager.events.length, 0);
-
-  await listener._scanSnapshot(quietSnapshot);
-
-  assert.equal(listener.taskManager.events.length, 1);
-  const task = listener.taskManager.events[0];
-  assert.equal(task.type, "STALE_AUTHOR_NUDGE");
-  assert.equal(task.severity, agent.TASK_EVENT_SEVERITY.STALE_AUTHOR_NUDGE);
-  assert.equal(task.details.requestedCommand, "需要@reviewer审核处理了");
-  assert.equal(task.details.reviewerMention, "@reviewer");
-  assert.equal(task.details.recommendedComment, "@reviewer 需要审核处理了");
-});
-
-test("stale author nudge clears when PR receives activity", async () => {
-  const listener = createListener();
-  const quietSnapshot = makeSnapshot({
-    prKey: "demo/repo#35",
-    updatedAt: "2000-01-01T00:00:00.000Z",
-    statusCheckState: "SUCCESS",
-    reviewDecision: "APPROVED",
-    mergeable: "MERGEABLE",
-  });
-
-  await listener._scanSnapshot(quietSnapshot);
-  await listener._scanSnapshot(quietSnapshot);
-  assert.equal(listener.taskManager.events[0].type, "STALE_AUTHOR_NUDGE");
-
-  await listener._scanSnapshot(makeSnapshot({
-    prKey: quietSnapshot.prKey,
-    updatedAt: new Date().toISOString(),
-    statusCheckState: "SUCCESS",
-    reviewDecision: "APPROVED",
-    mergeable: "MERGEABLE",
   }));
 
   assert.equal(listener.taskManager.events.length, 0);
@@ -442,15 +381,6 @@ test("state-backed actionability separates agent work from human blockers", () =
   }));
   assert.equal(rebase.actionability, agent.TASK_ACTIONABILITY.NEEDS_CONTRIBUTOR_ACTION);
   assert.equal(rebase.shouldBlock, true);
-
-  const stale = agent.classifyStateBackedActionability("STALE_AUTHOR_NUDGE", makeSnapshot({
-    updatedAt: "2000-01-01T00:00:00.000Z",
-    statusCheckState: "SUCCESS",
-    reviewDecision: "APPROVED",
-    mergeable: "MERGEABLE",
-  }));
-  assert.equal(stale.actionability, agent.TASK_ACTIONABILITY.ACTIONABLE_BY_AGENT);
-  assert.equal(stale.shouldBlock, false);
 });
 
 test("status rollup uses the latest run for each check label", () => {

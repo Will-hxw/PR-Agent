@@ -358,7 +358,7 @@ PR 提交后，工作没有结束。
 事件监听的运行规则：
 
 - task-backed 事件统一进入 launcher/subagent，不再依赖主会话手工完成闭环。
-- 目前 task-backed 事件包括：`CI_FAILURE`、`REVIEW_CHANGES_REQUESTED`、`MAINTAINER_COMMENT`、`BOT_COMMENT`、`NEW_COMMENT`、`NEEDS_REBASE`、`STALE_AUTHOR_NUDGE`。
+- 目前 task-backed 事件包括：`CI_FAILURE`、`REVIEW_CHANGES_REQUESTED`、`MAINTAINER_COMMENT`、`BOT_COMMENT`、`NEW_COMMENT`、`NEEDS_REBASE`。
 - 普通 `node run-claude-agent.js` 默认会刷新 `event_state.json` / `event_task.json` 并派发 PR event task。
 - 只有显式传入 `--no-event-listener` 时才只启动主 Claude 会话，不刷新 runtime JSON，也不会派发 PR event task；一次性刷新请使用 `update.sh`。
 - event listener 启动刷新、每次轮询和 `update.sh` 必须调用同一个 `generateEventJson()` 入口生成 `event_state.json` / `event_task.json`；当该入口成功完成并保存后，subagent 派发基于本轮刷新结果，启动刷新产生的 runnable task 也由 launcher/subagent claim。open PR search 失败时本轮不刷新 JSON，但仍会派发已有到期 retry task，避免队列冻结；单个 PR snapshot 失败时，本轮禁止派发该 `prKey` 的 task。
@@ -366,12 +366,11 @@ PR 提交后，工作没有结束。
 - `CI_PASSED`、`REVIEW_APPROVED`、`READY_TO_MERGE` 只通知，不写 task。
 - `READY_TO_MERGE` 默认要求 `reviewDecision=APPROVED`。若 `agent.config.json` 的 `readyToMergeReviewMode` 或 CLI 参数 `--ready-to-merge-review-mode` 设置为 `allow-no-review-required`，则 `reviewDecision=null` 且 CI 成功、可合并、无 unresolved review threads 的 PR 也可触发通知；`CHANGES_REQUESTED` 和 `REVIEW_REQUIRED` 仍不会触发。
 - `mergeStateStatus=BLOCKED` 不是 task-backed 事件；`NEEDS_REBASE` 只由 `BEHIND`、`DIRTY` 或 `mergeable=CONFLICTING` 触发。
-- `STALE_AUTHOR_NUDGE` 是防沉睡 task：同一个 PR 已被 listener 观察过，当前无 CI failure、pending check、changes requested、rebase/冲突、draft 或 unresolved review thread，且 GitHub `updatedAt` 距当前超过 24 小时时生成。subagent 必须先重查 PR 仍无问题且静默超过 24 小时，再发短评论 `@<author> 需要处理了`。
-- 去重语义是“同 `prKey + type` 的 task 仍存在时不重复建 task”，不是全局唯一。
+- 去重语义是”同 `prKey + type` 的 task 仍存在时不重复建 task”，不是全局唯一。
 - task 成功后会直接从 `event_task.json` 删除：subagent 完成时输出带 `nonce` 的结构化 `task result`，由 launcher 自动删除、block 或 retry；失败会重试，达到上限后进入 `dead`。comment-backed task 的 `resolved` / `not_actionable` 结果必须包含 `evidence`（`replyUrl`、`checkedCommand`、`reasonCategory` 或 `rationale` 之一），否则结果会被拒绝并保持 task 可重试。
 - 主代理不直接处理、删除或手工编辑 task。只有在 listener 已停止、且需要人工维护运行时 JSON 时，才按 `doc/event-task-state-maintenance.md` 更新 `event_state.json` 的 handled baseline 并清理对应 task；只删除 `event_task.json` 不代表事件已处理，下一次扫描可能重新生成同类 task。
 - listener 保存 runtime JSON 前会重读并校验磁盘内容；如检测到外部写入，会重载并重放本轮 mutation，降低旧内存状态覆盖磁盘变更的风险。这不是运行中手工编辑接口，listener 运行期间不要并行改 JSON。
-- `CI_FAILURE`、`REVIEW_CHANGES_REQUESTED`、`NEEDS_REBASE`、`STALE_AUTHOR_NUDGE` 这类状态型 task 只有在 GitHub 最新状态里的触发条件消失后才允许清除；如果 subagent 报告 `resolved` 但触发条件仍存在，应进入 `blocked`；如果报告 `blocked` / `needs_human`，launcher 直接保留为 `blocked`。
+- `CI_FAILURE`、`REVIEW_CHANGES_REQUESTED`、`NEEDS_REBASE` 这类状态型 task 只有在 GitHub 最新状态里的触发条件消失后才允许清除；如果 subagent 报告 `resolved` 但触发条件仍存在，应进入 `blocked`；如果报告 `blocked` / `needs_human`，launcher 直接保留为 `blocked`。
 - 状态型 task 会先按 actionability 分类：明确需要 contributor、maintainer、人类决策或基础设施处理的任务直接 `blocked`；agent 可行动或无法确定的任务才允许自动派发。
 - `pending` / `dead` task 只在底层触发条件仍然成立时继续保留；如果触发条件消失，会在后续扫描中自动回收，不再阻塞 dedupe。
 - 评论 backlog 按 `MAINTAINER_COMMENT`、`BOT_COMMENT`、`NEW_COMMENT` 三类独立跟踪，同一轮扫描里可以并存，不再折叠成单条评论 task。

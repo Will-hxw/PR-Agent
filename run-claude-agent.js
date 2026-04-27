@@ -70,17 +70,14 @@ const TASK_EVENT_SEVERITY = {
   BOT_COMMENT: "LIGHT",
   NEW_COMMENT: "LIGHT",
   NEEDS_REBASE: "LIGHT",
-  STALE_AUTHOR_NUDGE: "LIGHT",
 };
 const TASK_EVENT_TYPES = new Set(Object.keys(TASK_EVENT_SEVERITY));
 const INFO_ONLY_EVENT_TYPES = new Set(["CI_PASSED", "REVIEW_APPROVED", "READY_TO_MERGE"]);
 const COMMENT_TASK_TYPES = new Set(["MAINTAINER_COMMENT", "BOT_COMMENT", "NEW_COMMENT"]);
 const MERGE_TASK_TYPES = new Set(["NEEDS_REBASE"]);
-const STALE_AUTHOR_NUDGE_AFTER_MS = 24 * 60 * 60 * 1000;
 const STATE_BACKED_TASK_TYPES = new Set([
   "CI_FAILURE",
   "REVIEW_CHANGES_REQUESTED",
-  "STALE_AUTHOR_NUDGE",
   ...MERGE_TASK_TYPES,
 ]);
 const COMMENT_CATEGORIES = ["maintainer", "bot", "user"];
@@ -1392,17 +1389,6 @@ function hasNoOutstandingPrIssues(raw) {
     && Number(raw.unresolvedReviewThreadCount || 0) === 0;
 }
 
-function isStaleAuthorNudgeFromRaw(raw, options = {}) {
-  if (!hasNoOutstandingPrIssues(raw)) {
-    return false;
-  }
-  const updatedAtMs = parseValidTimestampMs(raw.updatedAt);
-  const nowMs = Number.isFinite(options.nowMs) ? options.nowMs : Date.now();
-  return updatedAtMs != null
-    && updatedAtMs <= nowMs
-    && nowMs - updatedAtMs >= STALE_AUTHOR_NUDGE_AFTER_MS;
-}
-
 function hasObservedPrSnapshot(observed) {
   return parseValidTimestampMs(observed?.updatedAt) != null;
 }
@@ -1419,9 +1405,6 @@ function isTaskTriggerActive(type, snapshot) {
   }
   if (type === "NEEDS_REBASE") {
     return isNeedsRebaseFromRaw(snapshot);
-  }
-  if (type === "STALE_AUTHOR_NUDGE") {
-    return isStaleAuthorNudgeFromRaw(snapshot);
   }
   return false;
 }
@@ -1444,8 +1427,6 @@ function describeActiveTaskTrigger(type, snapshot) {
   } else if (type === "NEEDS_REBASE") {
     parts.push(`mergeStateStatus=${snapshot.mergeStateStatus || "unknown"}`);
     parts.push(`mergeable=${snapshot.mergeable || "unknown"}`);
-  } else if (type === "STALE_AUTHOR_NUDGE") {
-    parts.push(`updatedAt=${snapshot.updatedAt || "unknown"}`);
   }
   return parts.join(" ");
 }
@@ -1463,32 +1444,6 @@ function buildStateBackedTaskDetails(type, snapshot) {
   }
   if (type === "NEEDS_REBASE") {
     return buildTaskDetails(type, snapshot, {
-      mergeStateStatus: snapshot.mergeStateStatus,
-      mergeable: snapshot.mergeable,
-    });
-  }
-  if (type === "STALE_AUTHOR_NUDGE") {
-    const updatedAtMs = parseValidTimestampMs(snapshot.updatedAt);
-    const nowMs = Date.now();
-    const staleHours = updatedAtMs != null && updatedAtMs <= nowMs
-      ? Math.floor((nowMs - updatedAtMs) / (60 * 60 * 1000))
-      : null;
-    const reviewRequests = snapshot.reviewers || [];
-    const userReviewer = reviewRequests.find((r) => r.requestedReviewer && r.requestedReviewer.login);
-    const requestedReviewer = userReviewer || reviewRequests[0] || null;
-    const reviewerLogin = requestedReviewer && requestedReviewer.requestedReviewer
-      ? (requestedReviewer.requestedReviewer.login || requestedReviewer.requestedReviewer.name || null)
-      : null;
-    const reviewerMention = reviewerLogin ? `@${reviewerLogin}` : "@reviewer";
-    return buildTaskDetails(type, snapshot, {
-      requestedCommand: "需要@reviewer审核处理了",
-      reviewerLogin,
-      reviewerMention,
-      recommendedComment: `${reviewerMention} 需要审核处理了`,
-      staleAfterHours: 24,
-      staleHours,
-      statusCheckState: snapshot.statusCheckState,
-      reviewDecision: snapshot.reviewDecision,
       mergeStateStatus: snapshot.mergeStateStatus,
       mergeable: snapshot.mergeable,
     });
@@ -1523,9 +1478,6 @@ function stateBackedBlockCategory(type) {
   if (type === "NEEDS_REBASE") {
     return "merge";
   }
-  if (type === "STALE_AUTHOR_NUDGE") {
-    return "stale";
-  }
   return "state";
 }
 
@@ -1542,12 +1494,6 @@ function buildBlockedSnapshot(type, snapshot) {
     blockedSnapshot.reviewCursor = cloneJson(snapshot?.reviewCursor || emptyCursor());
     blockedSnapshot.reviewCommentCursor = cloneJson(snapshot?.reviewCommentCursor || emptyCursor());
   } else if (type === "NEEDS_REBASE") {
-    blockedSnapshot.mergeStateStatus = snapshot?.mergeStateStatus || null;
-    blockedSnapshot.mergeable = snapshot?.mergeable || null;
-  } else if (type === "STALE_AUTHOR_NUDGE") {
-    blockedSnapshot.updatedAt = snapshot?.updatedAt || null;
-    blockedSnapshot.statusCheckState = snapshot?.statusCheckState || null;
-    blockedSnapshot.reviewDecision = snapshot?.reviewDecision || null;
     blockedSnapshot.mergeStateStatus = snapshot?.mergeStateStatus || null;
     blockedSnapshot.mergeable = snapshot?.mergeable || null;
   }
@@ -1720,12 +1666,6 @@ function classifyStateBackedActionability(type, snapshot) {
       blockReason: "needs-contributor-rebase",
       blockOwner: "contributor",
       unblockHint: "Contributor must rebase, merge the base branch, or push a refreshed head commit.",
-    });
-  }
-  if (type === "STALE_AUTHOR_NUDGE") {
-    return buildActionabilityResult(type, TASK_ACTIONABILITY.ACTIONABLE_BY_AGENT, {
-      blockOwner: "automation",
-      unblockHint: "Automation should re-check the PR and post a short author mention only if it is still quiet and issue-free.",
     });
   }
   return buildActionabilityResult(type, TASK_ACTIONABILITY.UNKNOWN, {
@@ -2554,18 +2494,6 @@ class EventState {
       entry.baseline.headSha = snapshot.headSha;
     }
 
-    if (task.type === "STALE_AUTHOR_NUDGE") {
-      entry.baseline.statusCheckState = snapshot.statusCheckState;
-      entry.baseline.failingChecks = Array.isArray(snapshot.failingChecks) ? cloneJson(snapshot.failingChecks) : [];
-      entry.baseline.pendingChecks = Array.isArray(snapshot.pendingChecks) ? cloneJson(snapshot.pendingChecks) : [];
-      entry.baseline.reviewDecision = snapshot.reviewDecision;
-      entry.baseline.mergeStateStatus = snapshot.mergeStateStatus;
-      entry.baseline.mergeable = snapshot.mergeable;
-      entry.baseline.isDraft = snapshot.isDraft;
-      entry.baseline.unresolvedReviewThreadCount = snapshot.unresolvedReviewThreadCount;
-      entry.baseline.headSha = snapshot.headSha;
-    }
-
     entry.baseline.updatedAt = snapshot.updatedAt || nowIso();
     entry.observed = baselineFromSnapshot(snapshot);
     entry.updatedAt = nowIso();
@@ -3340,20 +3268,6 @@ class EventListener {
         boundary: fullBoundary,
         details: buildStateBackedTaskDetails("NEEDS_REBASE", snapshot),
         actionability: classifyStateBackedActionability("NEEDS_REBASE", snapshot),
-      });
-    }
-
-    if (
-      candidateTasks.size === 0
-      && hasObservedPrSnapshot(observed)
-      && isStaleAuthorNudgeFromRaw(snapshot)
-    ) {
-      candidateTasks.set("STALE_AUTHOR_NUDGE", {
-        type: "STALE_AUTHOR_NUDGE",
-        severity: TASK_EVENT_SEVERITY.STALE_AUTHOR_NUDGE,
-        boundary: fullBoundary,
-        details: buildStateBackedTaskDetails("STALE_AUTHOR_NUDGE", snapshot),
-        actionability: classifyStateBackedActionability("STALE_AUTHOR_NUDGE", snapshot),
       });
     }
 
@@ -4683,7 +4597,6 @@ if (require.main === module) {
     isTaskTriggerActive,
     isNeedsRebaseFromRaw,
     isReadyToMergeFromRaw,
-    isStaleAuthorNudgeFromRaw,
     isOwnRepositoryPrKey,
     normalizeBaseline,
     normalizeBoundary,

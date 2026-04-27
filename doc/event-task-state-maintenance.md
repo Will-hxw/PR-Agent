@@ -78,7 +78,7 @@ listener 停止后，人工完成评论类 task 时：
 
 ## 状态型 task 完成后如何更新
 
-状态型 task 包括 `CI_FAILURE`、`REVIEW_CHANGES_REQUESTED`、`NEEDS_REBASE`、`STALE_AUTHOR_NUDGE`。
+状态型 task 包括 `CI_FAILURE`、`REVIEW_CHANGES_REQUESTED`、`NEEDS_REBASE`。
 
 状态型 task 会由 launcher 先做 actionability 分类：
 
@@ -92,8 +92,6 @@ listener 停止后，人工完成评论类 task 时：
 - `CI_FAILURE`：最新 status checks 不再失败。
 - `REVIEW_CHANGES_REQUESTED`：最新 review decision 不再是 `CHANGES_REQUESTED`。
 - `NEEDS_REBASE`：最新 `mergeStateStatus` 不再是 `BEHIND` / `DIRTY`，且 `mergeable` 不是 `CONFLICTING`。
-- `STALE_AUTHOR_NUDGE`：最新 PR 不再满足“无待处理问题且 `updatedAt` 超过 24 小时未变化”，通常是已发出作者提醒评论或 PR 出现了新活动。
-
 `mergeStateStatus=BLOCKED` 只是 GitHub 汇总状态信号，不是 task-backed 事件；它不应单独生成 `NEEDS_REBASE` 或其他 task。是否需要行动由 status checks、review decision、mergeable、draft、unresolved threads 等具体字段判断。
 
 如果触发条件仍然存在，保留 task。直接删除只会让 scanner 重新生成 task，或者隐藏真实待处理工作。
