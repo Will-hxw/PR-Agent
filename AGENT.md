@@ -354,8 +354,8 @@ PR 提交后，工作没有结束。
 
 - 启动 Claude CLI。
 - 通过 `stream-json` 发送初始提示和空闲提醒。
-- 可选开启事件监听。
-- 默认在终端显示主 Claude thinking 事件和带编号的 subagent 输出。
+- 默认开启事件监听；可用 `--no-event-listener` 只启动主 Claude 会话。
+- 默认在终端显示主 Claude 的 thinking、tool_result 摘要、system 初始化、普通文本和 result；subagent 输出带编号，并包含 thinking、tool、tool_result 摘要、stderr 和 result。
 - 写入运行日志。
 
 脚本只负责调度和提醒，不替代工程判断。任何修改、提交和 PR 仍必须按本文件与 `doc/pr_rule.md` 执行。
@@ -364,8 +364,8 @@ PR 提交后，工作没有结束。
 
 - task-backed 事件统一进入 launcher/subagent，不再依赖主会话手工完成闭环。
 - 目前 task-backed 事件包括：`CI_FAILURE`、`REVIEW_CHANGES_REQUESTED`、`MAINTAINER_COMMENT`、`BOT_COMMENT`、`NEW_COMMENT`、`NEEDS_REBASE`。
-- 普通 `node run-claude-agent.js` 只启动主 Claude 会话，不刷新 `event_state.json` / `event_task.json`，也不会派发 PR event task。
-- 只有启用 `--enable-event-listener` 时，启动阶段才会刷新 runtime JSON 并派发 runnable task；一次性刷新请使用 `update.sh`。
+- 普通 `node run-claude-agent.js` 默认会刷新 `event_state.json` / `event_task.json` 并派发 PR event task。
+- 只有显式传入 `--no-event-listener` 时才只启动主 Claude 会话，不刷新 runtime JSON，也不会派发 PR event task；一次性刷新请使用 `update.sh`。
 - event listener 启动刷新、每次轮询和 `update.sh` 必须调用同一个 `generateEventJson()` 入口生成 `event_state.json` / `event_task.json`；当该入口成功完成并保存后，subagent 派发基于本轮刷新结果，启动刷新产生的 runnable task 也由 launcher/subagent claim。open PR search 失败时本轮不刷新 JSON，但仍会派发已有到期 retry task，避免队列冻结；单个 PR snapshot 失败时，本轮禁止派发该 `prKey` 的 task。
 - `update.sh` 复用启动刷新路径，但不启动 subagent 派发；如果已有 listener 持有 active lock，它会输出 skipped 并以退出码 `2` 结束；如果 open PR search 失败，它会以 strict refresh 失败退出。
 - `CI_PASSED`、`REVIEW_APPROVED`、`READY_TO_MERGE` 只通知，不写 task。

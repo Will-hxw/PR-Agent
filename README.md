@@ -88,7 +88,7 @@ Copy-Item agent.config.example.json agent.config.json
 也可以不创建本地配置文件，改用环境变量：
 
 ```bash
-PR_AGENT_CONTRIBUTOR_LOGIN=your-github-login node run-claude-agent.js --enable-event-listener
+PR_AGENT_CONTRIBUTOR_LOGIN=your-github-login node run-claude-agent.js
 ```
 
 可选设置 `PR_AGENT_READY_TO_MERGE_REVIEW_MODE=allow-no-review-required`，效果等同于 `readyToMergeReviewMode`。
@@ -97,34 +97,23 @@ PowerShell：
 
 ```powershell
 $env:PR_AGENT_CONTRIBUTOR_LOGIN = "your-github-login"
-node run-claude-agent.js --enable-event-listener
+node run-claude-agent.js
 ```
 
 ---
 
 ## 快速启动
 
-最简启动：
+默认启动：
 
 ```bash
 node run-claude-agent.js
 ```
 
-最简启动只启动主 Claude 会话，不刷新 `event_state.json` / `event_task.json`，也不会派发 PR event task。需要刷新 PR runtime JSON 时，使用 event listener 或单独运行 `update.sh`。
+默认启动会开启 event listener，刷新 `event_state.json` / `event_task.json`，并派发到期 task。只想启动主 Claude 会话时使用：
 
-推荐启动事件监听；PR review 和 CI 检查统一通过 event listener 处理：
 ```bash
-node run-claude-agent.js \
-  --idle-seconds 300 \
-  --initial-delay-seconds 8 \
-  --nudge-cooldown-seconds 30 \
-  --max-nudges 0 \
-  --effort max \
-  --claude-command claude.cmd \
-  --enable-event-listener \
-  --event-poll-interval 3600000 \
-  --event-notification \
-  --event-subagent
+node run-claude-agent.js --no-event-listener
 ```
 ---
 
@@ -135,8 +124,8 @@ node run-claude-agent.js \
 - 启动 Claude。
 - 发送初始 prompt。
 - 在长时间无输出时自动补发提醒。
-- 可选轮询 GitHub PR 事件并提醒处理 review、CI、评论和 merge 状态变化。
-- 默认在终端显示主 Claude thinking 事件和 subagent 输出；subagent 输出带 `[subagent#N]` 编号。
+- 默认轮询 GitHub PR 事件并提醒处理 review、CI、评论和 merge 状态变化。
+- 默认在终端显示主 Claude 的 `thinking`、`tool_result` 摘要、`system` 初始化、普通文本和 `result`；subagent 输出带 `[subagent#N]` 编号，并包含 thinking、tool、tool_result 摘要、stderr 和 result。
 - 写入结构化运行日志。
 
 脚本只负责调度。是否值得改、怎么改、怎么验证、是否提交 PR，仍以 `AGENT.md` 和 `doc/pr_rule.md` 为准。
@@ -182,7 +171,8 @@ node run-claude-agent.js \
 
 | 参数 | 默认值 | 说明 |
 |---|---:|---|
-| `--enable-event-listener` | `false` | 开启 GitHub PR 事件轮询 |
+| `--enable-event-listener` | `true` | 开启 GitHub PR 事件轮询 |
+| `--no-event-listener` | - | 关闭 GitHub PR 事件轮询，只启动主 Claude 会话 |
 | `--event-poll-interval` | `3600000` | 事件轮询间隔，单位毫秒，默认 1 小时 |
 | `--event-notification` | `true` | 开启系统通知 |
 | `--no-event-notification` | - | 关闭系统通知 |
@@ -198,7 +188,7 @@ node run-claude-agent.js \
 
 | 模式 | 开关 | 用途 |
 |---|---|---|
-| Event listener | `--enable-event-listener` | 轮询 open PR，发现 CI、Review、评论、merge 状态变化 |
+| Event listener | 默认开启；`--no-event-listener` 可关闭 | 轮询 open PR，发现 CI、Review、评论、merge 状态变化 |
 
 也可以运行 `update.sh` 做一次性 runtime JSON 刷新；它复用 event listener 启动刷新路径，但不启动 subagent 派发。若已有 listener 持有 active lock，`update.sh` 会输出 `event JSON skipped: active listener lock` 并以退出码 `2` 结束；若 open PR search 失败，会以 strict refresh 失败退出，不能把旧 JSON 当作本次刷新成功。
 
@@ -213,7 +203,7 @@ node run-claude-agent.js \
 
 事件监听的硬规则：
 
-- 只有启用 `--enable-event-listener` 时，启动阶段才会调用 `generateEventJson()` 刷新 `event_state.json` / `event_task.json`；普通 `node run-claude-agent.js` 不刷新 PR event JSON，不生成无人派发的 task。
+- event listener 默认开启，启动阶段会调用 `generateEventJson()` 刷新 `event_state.json` / `event_task.json`；只有显式传入 `--no-event-listener` 时才只启动主 Claude 会话、不刷新 PR event JSON、不派发 task。
 - event listener 启动刷新、每次轮询和 `update.sh` 必须调用同一个 `generateEventJson()` 入口；当该入口成功完成并保存后，subagent 派发基于本轮刷新结果，启动刷新产生的 runnable task 也由 launcher/subagent claim，不交给主 Agent 手工处理。open PR search 失败时本轮不刷新 JSON，但仍会派发已有到期 retry task，避免队列冻结；单个 PR snapshot 刷新失败时，本轮跳过该 `prKey` 的 task 派发，避免基于陈旧快照启动 subagent。
 - 只要 `event_task.json` 中仍存在同 `prKey + type` 的 task，就视为去重命中，不会重复建 task。
 - task 成功后直接从 `event_task.json` 删除，不保留 handled 历史项；subagent 完成时输出带 `nonce` 的结构化 `task result`，由 launcher 自动删除、block 或 retry。comment-backed task 的 `resolved` / `not_actionable` 结果还必须带 `evidence`（例如 `replyUrl`、`checkedCommand`、`reasonCategory` 或 `rationale`），否则 launcher 会拒绝结果并保持 task 可重试，防止 PR comment 注入伪造完成信号。

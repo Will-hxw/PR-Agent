@@ -36,7 +36,7 @@ const DEFAULTS = {
   showThinking: true,
   showSubagentOutput: true,
   showRawEvents: false,
-  enableEventListener: false,
+  enableEventListener: true,
   eventPollIntervalMs: 3600000,
   eventNotificationEnabled: true,
   eventSubagentEnabled: true,
@@ -44,6 +44,7 @@ const DEFAULTS = {
 };
 
 const TASK_RESULT_PREFIX = "__EVENT_RESULT__ ";
+const TOOL_RESULT_PREVIEW_MAX = 700;
 const TASK_STATUS = {
   PENDING: "pending",
   RUNNING: "running",
@@ -263,6 +264,9 @@ function parseArgs(argv) {
       case "--enable-event-listener":
         config.enableEventListener = true;
         break;
+      case "--no-event-listener":
+        config.enableEventListener = false;
+        break;
       case "--event-poll-interval":
         config.eventPollIntervalMs = requireInt(argv, ++index, current);
         break;
@@ -343,7 +347,8 @@ function printHelp() {
       "  --show-subagent-output        在终端显示 subagent 输出（默认开启，带 subagent 编号）",
       "  --no-show-subagent-output     隐藏 subagent 终端输出",
       "  --show-raw-events             直接打印原始 JSON 事件",
-      "  --enable-event-listener       启用 GitHub 事件监听（默认轮询间隔 3600000ms）",
+      "  --enable-event-listener       启用 GitHub 事件监听（默认开启，轮询间隔 3600000ms）",
+      "  --no-event-listener           禁用 GitHub 事件监听，只启动主 Claude 会话",
       "  --event-poll-interval <n>     事件检测间隔（毫秒），默认 3600000（1小时）",
       "  --event-notification          启用系统通知（默认开启）",
       "  --no-event-notification       禁用系统通知",
@@ -479,6 +484,47 @@ function writePrefixedLines(prefix, text, stream = process.stdout) {
 function formatResultSummary(event) {
   const cost = typeof event.total_cost_usd === "number" ? event.total_cost_usd.toFixed(6) : "n/a";
   return `${event.subtype || "done"} turns=${event.num_turns ?? "?"} cost=$${cost}`;
+}
+
+function compactPreview(value, maxLength = TOOL_RESULT_PREVIEW_MAX) {
+  let text;
+  if (typeof value === "string") {
+    text = value;
+  } else if (value == null) {
+    text = "";
+  } else {
+    try {
+      text = JSON.stringify(value);
+    } catch {
+      text = String(value);
+    }
+  }
+  return truncate(text.replace(/\r/g, "\\r").replace(/\n/g, "\\n"), maxLength);
+}
+
+function renderUserEvent(event, prefix = "") {
+  const { message } = event;
+  if (!message || !Array.isArray(message.content)) {
+    return;
+  }
+  for (const item of message.content) {
+    if (item.type === "text" && item.text) {
+      writePrefixedLines(`${prefix}${color("[user]", "36")}`, item.text);
+      continue;
+    }
+    if (item.type === "tool_result") {
+      const id = item.tool_use_id ? ` ${item.tool_use_id}` : "";
+      const status = item.is_error ? " error" : "";
+      const preview = compactPreview(item.content);
+      process.stdout.write(`${prefix}${color("[tool-result]", "36")}${id}${status}${preview ? ` ${preview}` : ""}\n`);
+    }
+  }
+}
+
+function renderSystemEvent(event, prefix = "") {
+  const subtype = event.subtype || "event";
+  const session = event.session_id ? ` session=${event.session_id}` : "";
+  process.stdout.write(`${prefix}${color("[system]", "90")} ${subtype}${session}\n`);
 }
 
 function createJsonUserEvent(text) {
@@ -4076,6 +4122,16 @@ function renderSubagentEvent(event, label, seenToolUses) {
 
   if (event.type === "result") {
     process.stdout.write(`${prefix} ${color("[result]", "32")} ${formatResultSummary(event)}\n`);
+    return;
+  }
+
+  if (event.type === "user") {
+    renderUserEvent(event, `${prefix} `);
+    return;
+  }
+
+  if (event.type === "system") {
+    renderSystemEvent(event, `${prefix} `);
   }
 }
 
@@ -4258,6 +4314,8 @@ async function main() {
       actionLogger.writeLine(`[${nowStamp()}] stdout_parse_failed=${truncate(line, 400)}`);
       if (config.showRawEvents) {
         process.stdout.write(`${line}\n`);
+      } else {
+        writePrefixedLines(color("[stdout]", "90"), line);
       }
       return;
     }
@@ -4276,8 +4334,17 @@ async function main() {
       return;
     }
 
-    if (event.type === "system" && event.subtype === "init") {
-      actionLogger.writeLine(`[${nowStamp()}] session_init session_id=${event.session_id || ""}`);
+    if (event.type === "user") {
+      renderUserEvent(event);
+      return;
+    }
+
+    if (event.type === "system") {
+      if (event.subtype === "init") {
+        actionLogger.writeLine(`[${nowStamp()}] session_init session_id=${event.session_id || ""}`);
+      }
+      renderSystemEvent(event);
+      return;
     }
   };
 

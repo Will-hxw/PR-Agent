@@ -182,6 +182,26 @@ async function createFakeClaudeCommand(dir) {
   return commandPath;
 }
 
+async function createFakeClaudeOutputCommand(dir, events) {
+  const scriptPath = path.join(dir, "fake-claude-output.js");
+  const lines = events.map((event) => JSON.stringify(event));
+  await fs.writeFile(scriptPath, [
+    "const lines = " + JSON.stringify(lines) + ";",
+    "for (const line of lines) console.log(line);",
+  ].join("\n"), "utf8");
+
+  if (process.platform === "win32") {
+    const commandPath = path.join(dir, "fake-claude-output.cmd");
+    await fs.writeFile(commandPath, "@echo off\r\nnode \"%~dp0fake-claude-output.js\"\r\n", "utf8");
+    return commandPath;
+  }
+
+  const commandPath = path.join(dir, "fake-claude-output.sh");
+  await fs.writeFile(commandPath, "#!/usr/bin/env sh\nnode \"$(dirname \"$0\")/fake-claude-output.js\"\n", { encoding: "utf8", mode: 0o755 });
+  await fs.chmod(commandPath, 0o755);
+  return commandPath;
+}
+
 async function createAgentWorkspace() {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "pr-agent-main-"));
   await fs.mkdir(path.join(dir, "doc"), { recursive: true });
@@ -1290,6 +1310,7 @@ test("main bootstrap without listener does not create undispatchable tasks", asy
       workspace,
       "--claude-command",
       fakeClaude,
+      "--no-event-listener",
       "--initial-delay-seconds",
       "60",
     ]);
@@ -1302,6 +1323,64 @@ test("main bootstrap without listener does not create undispatchable tasks", asy
     assert.match(logText, /bootstrap_skipped reason=event_listener_disabled/);
     assert.doesNotMatch(logText, /bootstrap_done/);
     assert.doesNotMatch(logText, /event_listener_lock_acquired/);
+  } finally {
+    await fs.rm(workspace, { recursive: true, force: true });
+  }
+});
+
+test("main stream output shows thinking system and tool results by default", async () => {
+  const workspace = await createAgentWorkspace();
+  try {
+    const fakeClaude = await createFakeClaudeOutputCommand(workspace, [
+      {
+        type: "system",
+        subtype: "init",
+        session_id: "session-main",
+      },
+      {
+        type: "assistant",
+        message: {
+          content: [
+            { type: "thinking", thinking: "checking the queue" },
+            { type: "tool_use", id: "tool-1", name: "Read", input: { file_path: "event_task.json" } },
+            { type: "text", text: "main visible text" },
+          ],
+        },
+      },
+      {
+        type: "user",
+        message: {
+          content: [
+            { type: "tool_result", tool_use_id: "tool-1", content: "line one\nline two" },
+          ],
+        },
+      },
+      {
+        type: "result",
+        subtype: "success",
+        num_turns: 1,
+        total_cost_usd: 0.5,
+      },
+    ]);
+    const result = await runProcess(process.execPath, [
+      "run-claude-agent.js",
+      "--cwd",
+      workspace,
+      "--claude-command",
+      fakeClaude,
+      "--no-event-listener",
+      "--initial-delay-seconds",
+      "60",
+    ]);
+
+    assert.equal(result.code, 0, result.stderr || result.stdout);
+    const plain = stripAnsi(result.stdout);
+    assert.match(plain, /\[system\] init session=session-main/);
+    assert.match(plain, /\[thinking\] checking the queue/);
+    assert.match(plain, /\[tool\] Read \{"file_path":"event_task\.json"\}/);
+    assert.match(plain, /main visible text/);
+    assert.match(plain, /\[tool-result\] tool-1 line one\\nline two/);
+    assert.match(plain, /\[result\] success turns=1 cost=\$0\.500000/);
   } finally {
     await fs.rm(workspace, { recursive: true, force: true });
   }
@@ -2475,12 +2554,25 @@ test("subagent output is printed with numbered terminal prefix by default", asyn
   try {
     await listener._startTask(task);
     child.stdout.emit("data", Buffer.from(`${JSON.stringify({
+      type: "system",
+      subtype: "init",
+      session_id: "sub-session",
+    })}\n`));
+    child.stdout.emit("data", Buffer.from(`${JSON.stringify({
       type: "assistant",
       message: {
         content: [
           { type: "thinking", thinking: "checking current PR state" },
           { type: "tool_use", id: "tool-1", name: "Read", input: { file_path: "event_task.json" } },
           { type: "text", text: "subagent visible text" },
+        ],
+      },
+    })}\n`));
+    child.stdout.emit("data", Buffer.from(`${JSON.stringify({
+      type: "user",
+      message: {
+        content: [
+          { type: "tool_result", tool_use_id: "tool-1", content: "subagent tool result" },
         ],
       },
     })}\n`));
@@ -2498,9 +2590,11 @@ test("subagent output is printed with numbered terminal prefix by default", asyn
   }
 
   const plain = stripAnsi(output);
+  assert.match(plain, /\[subagent#1\] \[system\] init session=sub-session/);
   assert.match(plain, /\[subagent#1\] \[thinking\] checking current PR state/);
   assert.match(plain, /\[subagent#1\] \[tool\] Read \{"file_path":"event_task\.json"\}/);
   assert.match(plain, /\[subagent#1\] subagent visible text/);
+  assert.match(plain, /\[subagent#1\] \[tool-result\] tool-1 subagent tool result/);
   assert.match(plain, /\[subagent#1\] \[stderr\] subagent stderr line/);
   assert.match(plain, /\[subagent#1\] \[result\] success turns=1 cost=\$0\.250000/);
 });
