@@ -1450,8 +1450,63 @@ test("main stream output shows thinking system and tool results by default", asy
     assert.match(plain, /\[thinking\] checking the queue/);
     assert.match(plain, /\[tool\] Read \{"file_path":"event_task\.json"\}/);
     assert.match(plain, /main visible text/);
-    assert.match(plain, /\[tool-result\] tool-1 line one\\nline two/);
+    // tool-result is hidden by default
+    assert.ok(!plain.includes("[tool-result]"), "tool-result should not appear by default");
     assert.match(plain, /\[result\] success turns=1 cost=\$0\.500000/);
+  } finally {
+    await fs.rm(workspace, { recursive: true, force: true });
+  }
+});
+
+test("main stream output shows tool results when --show-tool-results is passed", async () => {
+  const workspace = await createAgentWorkspace();
+  try {
+    const fakeClaude = await createFakeClaudeOutputCommand(workspace, [
+      {
+        type: "system",
+        subtype: "init",
+        session_id: "session-main",
+      },
+      {
+        type: "assistant",
+        message: {
+          content: [
+            { type: "thinking", thinking: "checking the queue" },
+            { type: "tool_use", id: "tool-1", name: "Read", input: { file_path: "event_task.json" } },
+            { type: "text", text: "main visible text" },
+          ],
+        },
+      },
+      {
+        type: "user",
+        message: {
+          content: [
+            { type: "tool_result", tool_use_id: "tool-1", content: "line one\nline two" },
+          ],
+        },
+      },
+      {
+        type: "result",
+        subtype: "success",
+        num_turns: 1,
+        total_cost_usd: 0.5,
+      },
+    ]);
+    const result = await runProcess(process.execPath, [
+      "run-claude-agent.js",
+      "--cwd",
+      workspace,
+      "--claude-command",
+      fakeClaude,
+      "--no-event-listener",
+      "--initial-delay-seconds",
+      "60",
+      "--show-tool-results",
+    ]);
+
+    assert.equal(result.code, 0, result.stderr || result.stdout);
+    const plain = stripAnsi(result.stdout);
+    assert.match(plain, /\[tool-result\] tool-1 line one\\nline two/);
   } finally {
     await fs.rm(workspace, { recursive: true, force: true });
   }
@@ -2666,7 +2721,8 @@ test("subagent output is printed with numbered terminal prefix by default", asyn
   assert.match(plain, /\[subagent#1\] \[thinking\] checking current PR state/);
   assert.match(plain, /\[subagent#1\] \[tool\] Read \{"file_path":"event_task\.json"\}/);
   assert.match(plain, /\[subagent#1\] subagent visible text/);
-  assert.match(plain, /\[subagent#1\] \[tool-result\] tool-1 subagent tool result/);
+  // tool-result is hidden by default
+  assert.ok(!plain.includes("[subagent#1] [tool-result]"), "subagent tool-result should not appear by default");
   assert.match(plain, /\[subagent#1\] \[stderr\] subagent stderr line/);
   assert.match(plain, /\[subagent#1\] \[result\] success turns=1 cost=\$0\.250000/);
 });

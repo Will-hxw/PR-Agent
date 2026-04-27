@@ -36,6 +36,7 @@ const DEFAULTS = {
   showThinking: true,
   showSubagentOutput: true,
   showRawEvents: false,
+  showToolResults: false,
   enableEventListener: true,
   eventPollIntervalMs: 3600000,
   eventNotificationEnabled: true,
@@ -268,6 +269,12 @@ function parseArgs(argv) {
       case "--show-raw-events":
         config.showRawEvents = true;
         break;
+      case "--show-tool-results":
+        config.showToolResults = true;
+        break;
+      case "--no-show-tool-results":
+        config.showToolResults = false;
+        break;
       case "--enable-event-listener":
         config.enableEventListener = true;
         break;
@@ -354,6 +361,8 @@ function printHelp() {
       "  --show-subagent-output        在终端显示 subagent 输出（默认开启，带 subagent 编号）",
       "  --no-show-subagent-output     隐藏 subagent 终端输出",
       "  --show-raw-events             直接打印原始 JSON 事件",
+      "  --show-tool-results           在终端显示 tool 结果（默认关闭）",
+      "  --no-show-tool-results        隐藏 tool 结果",
       "  --enable-event-listener       启用 GitHub 事件监听（默认开启，轮询间隔 3600000ms）",
       "  --no-event-listener           禁用 GitHub 事件监听，只启动主 Claude 会话",
       "  --event-poll-interval <n>     事件检测间隔（毫秒），默认 3600000（1小时）",
@@ -509,7 +518,7 @@ function compactPreview(value, maxLength = TOOL_RESULT_PREVIEW_MAX) {
   return truncate(text.replace(/\r/g, "\\r").replace(/\n/g, "\\n"), maxLength);
 }
 
-function renderUserEvent(event, prefix = "") {
+function renderUserEvent(event, prefix = "", showToolResults = false) {
   const { message } = event;
   if (!message || !Array.isArray(message.content)) {
     return;
@@ -519,7 +528,7 @@ function renderUserEvent(event, prefix = "") {
       writePrefixedLines(`${prefix}${color("[user]", "36")}`, item.text);
       continue;
     }
-    if (item.type === "tool_result") {
+    if (item.type === "tool_result" && showToolResults) {
       const id = item.tool_use_id ? ` ${item.tool_use_id}` : "";
       const status = item.is_error ? " error" : "";
       const preview = compactPreview(item.content);
@@ -3751,7 +3760,7 @@ class EventListener {
         return;
       }
       if (this.config.showSubagentOutput) {
-        renderSubagentEvent(event, subagentLabel, seenSubagentToolUses);
+        renderSubagentEvent(event, subagentLabel, seenSubagentToolUses, this.config.showToolResults);
       }
       if (event.type !== "assistant" || !event.message || !Array.isArray(event.message.content)) {
         return;
@@ -4302,7 +4311,7 @@ function renderAssistantEvent(event, config, seenToolUses) {
   }
 }
 
-function renderSubagentEvent(event, label, seenToolUses) {
+function renderSubagentEvent(event, label, seenToolUses, showToolResults) {
   const prefix = color(`[${label}]`, "34");
   if (event.type === "assistant") {
     const { message } = event;
@@ -4333,7 +4342,7 @@ function renderSubagentEvent(event, label, seenToolUses) {
   }
 
   if (event.type === "user") {
-    renderUserEvent(event, `${prefix} `);
+    renderUserEvent(event, `${prefix} `, showToolResults);
     return;
   }
 
@@ -4542,7 +4551,7 @@ async function main() {
     }
 
     if (event.type === "user") {
-      renderUserEvent(event);
+      renderUserEvent(event, "", config.showToolResults);
       return;
     }
 
