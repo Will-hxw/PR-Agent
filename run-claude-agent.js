@@ -69,12 +69,19 @@ const TASK_EVENT_SEVERITY = {
   BOT_COMMENT: "LIGHT",
   NEW_COMMENT: "LIGHT",
   NEEDS_REBASE: "LIGHT",
+  STALE_AUTHOR_NUDGE: "LIGHT",
 };
 const TASK_EVENT_TYPES = new Set(Object.keys(TASK_EVENT_SEVERITY));
 const INFO_ONLY_EVENT_TYPES = new Set(["CI_PASSED", "REVIEW_APPROVED", "READY_TO_MERGE"]);
 const COMMENT_TASK_TYPES = new Set(["MAINTAINER_COMMENT", "BOT_COMMENT", "NEW_COMMENT"]);
 const MERGE_TASK_TYPES = new Set(["NEEDS_REBASE"]);
-const STATE_BACKED_TASK_TYPES = new Set(["CI_FAILURE", "REVIEW_CHANGES_REQUESTED", ...MERGE_TASK_TYPES]);
+const STALE_AUTHOR_NUDGE_AFTER_MS = 24 * 60 * 60 * 1000;
+const STATE_BACKED_TASK_TYPES = new Set([
+  "CI_FAILURE",
+  "REVIEW_CHANGES_REQUESTED",
+  "STALE_AUTHOR_NUDGE",
+  ...MERGE_TASK_TYPES,
+]);
 const COMMENT_CATEGORIES = ["maintainer", "bot", "user"];
 const COMMENT_TASK_TYPE_BY_CATEGORY = Object.freeze({
   maintainer: "MAINTAINER_COMMENT",
@@ -105,7 +112,7 @@ const GH_CLEANUP_TIMEOUT_MS = 30 * 1000;
 const SUBAGENT_TIMEOUT_MS = 30 * 60 * 1000;
 const SUBAGENT_FORCE_KILL_GRACE_MS = 5 * 1000;
 const SUBAGENT_HEARTBEAT_SAVE_INTERVAL_MS = 15 * 1000;
-const MAX_PARALLEL_SUBAGENTS = 3;
+const MAX_PARALLEL_SUBAGENTS = 1;
 const GRAPHQL_INT_MIN = -2147483648;
 const GRAPHQL_INT_MAX = 2147483647;
 const EVENT_LISTENER_LOCK_FILE = path.join(ROOT_DIR, DEFAULTS.logDirName, "event-listener.lock");
@@ -120,10 +127,10 @@ const SEVERITY_ORDER = {
 function buildDefaultPrompt() {
   return [
     `请用 JSON 解析工具读取 launcher 根目录下的运行时状态文件：${STATE_FILE} 和 ${TASK_FILE}，了解当前 PR 状态和未完成任务。`,
-    "task-backed 事件由 launcher/subagent claim 并处理；你是主Agent 不要直接处理、删除或手工编辑 event_task.json / event_state.json。",
-    "如果必须维护 event_task.json / event_state.json，按 doc/event-task-state-maintenance.md 操作。",
+    "如果必须维护 event_task.json / event_state.json，必须按 doc/event-task-state-maintenance.md 操作。",
     "请同时维护本仓库的 git 状态；不要在本仓库创建贡献分支，但可以在 candidates/ 中管理具体目标项目的 git。",
     "请遵守同目录下的 AGENT.md 与 doc/pr_rule.md。",
+    "关键原则：如果发现没有新任务可做，不要停留在过去的open PR上反复检查，你应该去找新的pr机会去做",
   ].join("\n");
 }
 
@@ -1213,6 +1220,7 @@ function buildSubagentPrompt(task) {
     "8. 这是 subagent 任务，不要手动编辑 event_state.json 或 event_task.json；完成后按 task result 协议输出结构化结果，由 launcher 推进 state、删除、block 或 retry 对应 task。",
     `9. Result nonce: ${task.resultNonce || "<legacy task without nonce>"}`,
     "10. For comment-backed tasks, resolved/not_actionable results must include evidence with at least one of replyUrl, checkedCommand, reasonCategory, or rationale; otherwise the launcher rejects the result and keeps the task retryable.",
+    "11. For STALE_AUTHOR_NUDGE, re-check that the PR is still issue-free and quiet for more than 24 hours, then post one short PR comment using the recommendedComment from event details (for example: @reviewer 需要审核处理了).",
     "",
     "task result 协议：",
     "最后单独输出一行，不要放进代码块。status 必须是 resolved、blocked、needs_human、not_actionable 之一。",
@@ -1224,7 +1232,9 @@ function buildSubagentPrompt(task) {
     "输出格式示例，保持 version/eventId/prKey/type/nonce 字段与本 task 一致，只改 status/reason/summary：",
     resultLine,
     "",
-    "如果没有形成明确结论，不要输出 task result。",
+    "关键原则：完成任务后立即输出 task result，不要停留在当前 PR 反复检查或等待；launcher 会自动分配新任务。",
+    "如果该事件的触发条件已消失（例如 CI 已修复、已有人审核、PR 已更新），立即输出 not_actionable 并说明原因。",
+    "不要在没有形成结论时保持沉默——not_actionable 或 blocked 都是有效结论，launcher 会据此分配新任务。",
   ].join("\n");
 }
 
@@ -1364,6 +1374,39 @@ function isReadyToMergeFromRaw(raw, options = {}) {
     && Number(raw.unresolvedReviewThreadCount || 0) === 0;
 }
 
+function parseValidTimestampMs(value) {
+  if (typeof value !== "string" || !value.trim()) {
+    return null;
+  }
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function hasNoOutstandingPrIssues(raw) {
+  return !raw.isDraft
+    && raw.statusCheckState !== "FAILED"
+    && raw.statusCheckState !== "PENDING"
+    && raw.reviewDecision !== "CHANGES_REQUESTED"
+    && !isNeedsRebaseFromRaw(raw)
+    && raw.mergeable !== "CONFLICTING"
+    && Number(raw.unresolvedReviewThreadCount || 0) === 0;
+}
+
+function isStaleAuthorNudgeFromRaw(raw, options = {}) {
+  if (!hasNoOutstandingPrIssues(raw)) {
+    return false;
+  }
+  const updatedAtMs = parseValidTimestampMs(raw.updatedAt);
+  const nowMs = Number.isFinite(options.nowMs) ? options.nowMs : Date.now();
+  return updatedAtMs != null
+    && updatedAtMs <= nowMs
+    && nowMs - updatedAtMs >= STALE_AUTHOR_NUDGE_AFTER_MS;
+}
+
+function hasObservedPrSnapshot(observed) {
+  return parseValidTimestampMs(observed?.updatedAt) != null;
+}
+
 function isTaskTriggerActive(type, snapshot) {
   if (!snapshot) {
     return false;
@@ -1376,6 +1419,9 @@ function isTaskTriggerActive(type, snapshot) {
   }
   if (type === "NEEDS_REBASE") {
     return isNeedsRebaseFromRaw(snapshot);
+  }
+  if (type === "STALE_AUTHOR_NUDGE") {
+    return isStaleAuthorNudgeFromRaw(snapshot);
   }
   return false;
 }
@@ -1398,6 +1444,8 @@ function describeActiveTaskTrigger(type, snapshot) {
   } else if (type === "NEEDS_REBASE") {
     parts.push(`mergeStateStatus=${snapshot.mergeStateStatus || "unknown"}`);
     parts.push(`mergeable=${snapshot.mergeable || "unknown"}`);
+  } else if (type === "STALE_AUTHOR_NUDGE") {
+    parts.push(`updatedAt=${snapshot.updatedAt || "unknown"}`);
   }
   return parts.join(" ");
 }
@@ -1415,6 +1463,32 @@ function buildStateBackedTaskDetails(type, snapshot) {
   }
   if (type === "NEEDS_REBASE") {
     return buildTaskDetails(type, snapshot, {
+      mergeStateStatus: snapshot.mergeStateStatus,
+      mergeable: snapshot.mergeable,
+    });
+  }
+  if (type === "STALE_AUTHOR_NUDGE") {
+    const updatedAtMs = parseValidTimestampMs(snapshot.updatedAt);
+    const nowMs = Date.now();
+    const staleHours = updatedAtMs != null && updatedAtMs <= nowMs
+      ? Math.floor((nowMs - updatedAtMs) / (60 * 60 * 1000))
+      : null;
+    const reviewRequests = snapshot.reviewers || [];
+    const userReviewer = reviewRequests.find((r) => r.requestedReviewer && r.requestedReviewer.login);
+    const requestedReviewer = userReviewer || reviewRequests[0] || null;
+    const reviewerLogin = requestedReviewer && requestedReviewer.requestedReviewer
+      ? (requestedReviewer.requestedReviewer.login || requestedReviewer.requestedReviewer.name || null)
+      : null;
+    const reviewerMention = reviewerLogin ? `@${reviewerLogin}` : "@reviewer";
+    return buildTaskDetails(type, snapshot, {
+      requestedCommand: "需要@reviewer审核处理了",
+      reviewerLogin,
+      reviewerMention,
+      recommendedComment: `${reviewerMention} 需要审核处理了`,
+      staleAfterHours: 24,
+      staleHours,
+      statusCheckState: snapshot.statusCheckState,
+      reviewDecision: snapshot.reviewDecision,
       mergeStateStatus: snapshot.mergeStateStatus,
       mergeable: snapshot.mergeable,
     });
@@ -1449,6 +1523,9 @@ function stateBackedBlockCategory(type) {
   if (type === "NEEDS_REBASE") {
     return "merge";
   }
+  if (type === "STALE_AUTHOR_NUDGE") {
+    return "stale";
+  }
   return "state";
 }
 
@@ -1465,6 +1542,12 @@ function buildBlockedSnapshot(type, snapshot) {
     blockedSnapshot.reviewCursor = cloneJson(snapshot?.reviewCursor || emptyCursor());
     blockedSnapshot.reviewCommentCursor = cloneJson(snapshot?.reviewCommentCursor || emptyCursor());
   } else if (type === "NEEDS_REBASE") {
+    blockedSnapshot.mergeStateStatus = snapshot?.mergeStateStatus || null;
+    blockedSnapshot.mergeable = snapshot?.mergeable || null;
+  } else if (type === "STALE_AUTHOR_NUDGE") {
+    blockedSnapshot.updatedAt = snapshot?.updatedAt || null;
+    blockedSnapshot.statusCheckState = snapshot?.statusCheckState || null;
+    blockedSnapshot.reviewDecision = snapshot?.reviewDecision || null;
     blockedSnapshot.mergeStateStatus = snapshot?.mergeStateStatus || null;
     blockedSnapshot.mergeable = snapshot?.mergeable || null;
   }
@@ -1639,6 +1722,12 @@ function classifyStateBackedActionability(type, snapshot) {
       unblockHint: "Contributor must rebase, merge the base branch, or push a refreshed head commit.",
     });
   }
+  if (type === "STALE_AUTHOR_NUDGE") {
+    return buildActionabilityResult(type, TASK_ACTIONABILITY.ACTIONABLE_BY_AGENT, {
+      blockOwner: "automation",
+      unblockHint: "Automation should re-check the PR and post a short author mention only if it is still quiet and issue-free.",
+    });
+  }
   return buildActionabilityResult(type, TASK_ACTIONABILITY.UNKNOWN, {
     blockOwner: "automation",
   });
@@ -1764,9 +1853,6 @@ function parseFinalTaskResultText(text, task) {
   if (resultLines.length === 0) {
     return null;
   }
-  if (!lines[lines.length - 1].startsWith(TASK_RESULT_PREFIX)) {
-    return { valid: false, reason: "task_result_not_final_line" };
-  }
 
   const validResults = [];
   const invalidReasons = [];
@@ -1841,6 +1927,79 @@ function parseTaskResultLine(line, task) {
     return { valid: true, payload: normalizeTaskResultPayload(payload) };
   }
   return { valid: false, reason: "task_result_payload_mismatch", payload };
+}
+
+/**
+ * 当 gh 成功但 result 输出缺失/无效时，用 gh 验证 PR 实际状态。
+ * @param {object} task - claim 时的 task 副本
+ * @param {boolean} ghSucceeded - gh subagent 是否成功（exit code 0）
+ * @param {object} options - { fetchPrSnapshot, classifyActivityCategory, buildCommentCursorSet,
+ *                              COMMENT_TASK_TYPES, COMMENT_CATEGORY_BY_TASK_TYPE,
+ *                              STATE_BACKED_TASK_TYPES, isTaskTriggerActive }
+ * @returns {{ verified: boolean, reason: string }}
+ */
+async function verifyTaskCompletionViaGh(task, ghSucceeded, options = {}) {
+  const {
+    fetchPrSnapshot,
+    classifyActivityCategory,
+    buildCommentCursorSet,
+    COMMENT_TASK_TYPES,
+    COMMENT_CATEGORY_BY_TASK_TYPE,
+    STATE_BACKED_TASK_TYPES,
+    isTaskTriggerActive,
+  } = options;
+
+  if (!ghSucceeded) {
+    return { verified: false, reason: "gh_failed" };
+  }
+
+  let snapshot;
+  try {
+    snapshot = fetchPrSnapshot
+      ? await fetchPrSnapshot(task.prKey, { timeoutMs: GH_TIMEOUT_MS })
+      : null;
+  } catch {
+    return { verified: false, reason: "gh_query_failed" };
+  }
+
+  if (!snapshot) {
+    return { verified: false, reason: "gh_query_failed" };
+  }
+
+  // ---------- 评论类任务验证 ----------
+  if (COMMENT_TASK_TYPES.has(task.type)) {
+    const category = COMMENT_CATEGORY_BY_TASK_TYPE[task.type];
+    const bc = task.boundary || {};
+    const savedCursorSet = {
+      issueCommentCursor: bc.issueCommentCursor,
+      reviewCommentCursor: bc.reviewCommentCursor,
+      reviewCursor: bc.reviewCursor,
+    };
+    const currentCursorSet = buildCommentCursorSet(
+      (snapshot.issueComments || []).filter((a) => classifyActivityCategory(a) === category),
+      (snapshot.reviewComments || []).filter((a) => classifyActivityCategory(a) === category),
+      (snapshot.reviews || []).filter((a) => classifyActivityCategory(a) === category),
+    );
+    const advanced =
+      currentCursorSet.issueCommentCursor.value !== (savedCursorSet.issueCommentCursor?.value ?? null)
+      || currentCursorSet.reviewCommentCursor.value !== (savedCursorSet.reviewCommentCursor?.value ?? null)
+      || currentCursorSet.reviewCursor.value !== (savedCursorSet.reviewCursor?.value ?? null);
+    return {
+      verified: advanced,
+      reason: advanced ? "comment_posted" : "comment_not_posted",
+    };
+  }
+
+  // ---------- 状态类任务验证 ----------
+  if (STATE_BACKED_TASK_TYPES.has(task.type)) {
+    const triggerActive = isTaskTriggerActive(task.type, snapshot);
+    return {
+      verified: !triggerActive,
+      reason: triggerActive ? "trigger_still_active" : "trigger_cleared",
+    };
+  }
+
+  return { verified: false, reason: "unknown_task_type" };
 }
 
 function appendQuery(base, params) {
@@ -2224,6 +2383,7 @@ async function fetchPrSnapshot(prKey, options = {}) {
     "mergeable",
     "isDraft",
     "latestReviews",
+    "reviewRequests",
     "headRefOid",
     "headRefName",
     "baseRefName",
@@ -2280,6 +2440,7 @@ async function fetchPrSnapshot(prKey, options = {}) {
     issueComments,
     reviewComments,
     reviews,
+    reviewers: prView.reviewRequests || [],
     issueCommentCursor: buildCursor(issueComments),
     reviewCommentCursor: buildCursor(reviewComments),
     reviewCursor: buildCursor(reviews),
@@ -2382,6 +2543,18 @@ class EventState {
     }
 
     if (MERGE_TASK_TYPES.has(task.type)) {
+      entry.baseline.statusCheckState = snapshot.statusCheckState;
+      entry.baseline.failingChecks = Array.isArray(snapshot.failingChecks) ? cloneJson(snapshot.failingChecks) : [];
+      entry.baseline.pendingChecks = Array.isArray(snapshot.pendingChecks) ? cloneJson(snapshot.pendingChecks) : [];
+      entry.baseline.reviewDecision = snapshot.reviewDecision;
+      entry.baseline.mergeStateStatus = snapshot.mergeStateStatus;
+      entry.baseline.mergeable = snapshot.mergeable;
+      entry.baseline.isDraft = snapshot.isDraft;
+      entry.baseline.unresolvedReviewThreadCount = snapshot.unresolvedReviewThreadCount;
+      entry.baseline.headSha = snapshot.headSha;
+    }
+
+    if (task.type === "STALE_AUTHOR_NUDGE") {
       entry.baseline.statusCheckState = snapshot.statusCheckState;
       entry.baseline.failingChecks = Array.isArray(snapshot.failingChecks) ? cloneJson(snapshot.failingChecks) : [];
       entry.baseline.pendingChecks = Array.isArray(snapshot.pendingChecks) ? cloneJson(snapshot.pendingChecks) : [];
@@ -3170,6 +3343,20 @@ class EventListener {
       });
     }
 
+    if (
+      candidateTasks.size === 0
+      && hasObservedPrSnapshot(observed)
+      && isStaleAuthorNudgeFromRaw(snapshot)
+    ) {
+      candidateTasks.set("STALE_AUTHOR_NUDGE", {
+        type: "STALE_AUTHOR_NUDGE",
+        severity: TASK_EVENT_SEVERITY.STALE_AUTHOR_NUDGE,
+        boundary: fullBoundary,
+        details: buildStateBackedTaskDetails("STALE_AUTHOR_NUDGE", snapshot),
+        actionability: classifyStateBackedActionability("STALE_AUTHOR_NUDGE", snapshot),
+      });
+    }
+
     const existingByType = new Map();
     for (const task of this.taskManager.listByPrKey(snapshot.prKey)) {
       if (!TASK_EVENT_TYPES.has(task.type)) {
@@ -3653,15 +3840,35 @@ class EventListener {
         return;
       }
 
-      const success = !attemptTimedOut
-        && !killRequested
-        && code === 0
-        && taskResult
-        && !invalidTaskResultReason;
+      const ghSucceeded = (code === 0 && !attemptTimedOut && !killRequested);
 
-      if (success) {
+      if (ghSucceeded && taskResult && taskResult.valid !== false && !invalidTaskResultReason) {
+        // A1-A3: gh 成功 + 有效 result → 按 result.status 路由
         await this._handleTaskResult(task, taskResult);
+      } else if (ghSucceeded && (!taskResult || invalidTaskResultReason)) {
+        // A5-A6: gh 成功但 result 缺失/无效 → 用 gh 验证 PR 实际状态
+        const verified = await verifyTaskCompletionViaGh(task, ghSucceeded, {
+          fetchPrSnapshot: this.fetchPrSnapshot,
+          classifyActivityCategory,
+          buildCommentCursorSet,
+          COMMENT_TASK_TYPES,
+          COMMENT_CATEGORY_BY_TASK_TYPE,
+          STATE_BACKED_TASK_TYPES,
+          isTaskTriggerActive,
+        });
+        if (verified.verified) {
+          this.actionLogger.writeLine(
+            `[${nowStamp()}] subagent_verified_success pr=${task.prKey} task=${task.id} reason=${verified.reason}`
+          );
+          await this._handleTaskSuccess(task);
+        } else {
+          const reason = invalidTaskResultReason
+            ? `outputless_failure:${invalidTaskResultReason}`
+            : `outputless_failure:${verified.reason}`;
+          await this._handleTaskFailure(task, reason);
+        }
       } else {
+        // B1-B4: gh 失败 / 超时 / spawn error / 多重 result
         const reason = spawnError
           ? `spawn_error: ${spawnError.message}`
           : attemptTimedOut
@@ -4471,9 +4678,12 @@ if (require.main === module) {
     emptyCommentBaselines,
     emptyCommentCursorSet,
     emptyCursor,
+    hasNoOutstandingPrIssues,
+    hasObservedPrSnapshot,
     isTaskTriggerActive,
     isNeedsRebaseFromRaw,
     isReadyToMergeFromRaw,
+    isStaleAuthorNudgeFromRaw,
     isOwnRepositoryPrKey,
     normalizeBaseline,
     normalizeBoundary,

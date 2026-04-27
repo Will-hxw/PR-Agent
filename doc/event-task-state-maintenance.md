@@ -4,8 +4,6 @@
 
 ## 操作前提
 
-- 人工编辑运行时 JSON 前，必须先停止正在运行的 event listener / launcher。
-- 不要在 listener 运行期间手工编辑 `event_task.json` 或 `event_state.json`；listener 保存前会检测磁盘变更并尝试重载重放，但这只是防 lost update 的保护，不是人工并行写入接口。
 - `update.sh` 只用于按启动路径刷新 JSON，不是人工删除或确认 task 的替代入口；如果 active listener lock 存在，它会 skipped，不代表已经刷新成功；如果 open PR search 失败，它会以 strict refresh 失败退出，不能把旧 JSON 当作成功刷新结果。
 - `event_state.json` 与 `event_task.json` 的 `runtimeRevision` 必须保持一致；人工编辑两个文件时不要改成不同 revision。
 - 如果 listener 无法停止，先不要编辑 JSON；应记录需要处理的 `task.id`、`prKey`、`type` 和最新 GitHub 状态，等 listener 停止后再维护。
@@ -80,7 +78,7 @@ listener 停止后，人工完成评论类 task 时：
 
 ## 状态型 task 完成后如何更新
 
-状态型 task 包括 `CI_FAILURE`、`REVIEW_CHANGES_REQUESTED`、`NEEDS_REBASE`。
+状态型 task 包括 `CI_FAILURE`、`REVIEW_CHANGES_REQUESTED`、`NEEDS_REBASE`、`STALE_AUTHOR_NUDGE`。
 
 状态型 task 会由 launcher 先做 actionability 分类：
 
@@ -94,6 +92,7 @@ listener 停止后，人工完成评论类 task 时：
 - `CI_FAILURE`：最新 status checks 不再失败。
 - `REVIEW_CHANGES_REQUESTED`：最新 review decision 不再是 `CHANGES_REQUESTED`。
 - `NEEDS_REBASE`：最新 `mergeStateStatus` 不再是 `BEHIND` / `DIRTY`，且 `mergeable` 不是 `CONFLICTING`。
+- `STALE_AUTHOR_NUDGE`：最新 PR 不再满足“无待处理问题且 `updatedAt` 超过 24 小时未变化”，通常是已发出作者提醒评论或 PR 出现了新活动。
 
 `mergeStateStatus=BLOCKED` 只是 GitHub 汇总状态信号，不是 task-backed 事件；它不应单独生成 `NEEDS_REBASE` 或其他 task。是否需要行动由 status checks、review decision、mergeable、draft、unresolved threads 等具体字段判断。
 
