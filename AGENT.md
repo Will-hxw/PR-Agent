@@ -89,7 +89,6 @@
 
 ```text
 STARTUP
--> MONITOR_OPEN_PRS
 -> SCOUT
 -> TRIAGE
 -> LOCK_TARGET
@@ -97,11 +96,10 @@ STARTUP
 -> VALIDATE
 -> SUBMIT_PR
 -> RECORD
--> MONITOR_OPEN_PRS
 -> FINISHED or SKIPPED
 ```
 
-如果 Review 或 CI 产生新事件，优先回到 `MONITOR_OPEN_PRS` 处理已有 PR，再决定是否继续寻找新项目。
+如果 Review 或 CI 产生新事件，subagent 会处理已有 PR，主 agent 可以同时寻找新项目。
 
 ---
 
@@ -114,9 +112,9 @@ STARTUP
 3. 确认 `agent.config.json` 或 `PR_AGENT_CONTRIBUTOR_LOGIN` 提供了当前贡献者的 GitHub 登录名。
 4. 检查 `git status --short --branch`，确认本仓库是否已有未处理改动。
 5. 确保 `records/`、`candidates/` 存在；不存在则创建。
-6. 先检查所有 open PR 状态，再开始新的 scout。
+6. open PR 检查和事件派发由 event listener/subagent 负责；主 agent 聚焦于寻找新 PR 机会。
 
-检查 open PR 必须以 GitHub 当前数据为准，不能凭记忆：
+> 手动检查 open PR（参考脚本）：
 
 ```powershell
 $login = if ($env:PR_AGENT_CONTRIBUTOR_LOGIN) { $env:PR_AGENT_CONTRIBUTOR_LOGIN } else { (Get-Content agent.config.json | ConvertFrom-Json).contributorLogin }
@@ -146,17 +144,14 @@ gh api repos/<owner>/<repo>/pulls/<number>/reviews
 
 ## 6. 主工作流
 
-### 6.1 Monitor：先处理已有 PR
+### 6.1 概述与分工
 
-只要存在 open PR，就先确认：
+本系统的 PR 处理采用主 agent + subagent 分工模式：
 
-- CI 是否失败、挂起或需要重跑。
-- 是否有维护者、人类 reviewer、bot 的新评论。
-- `reviewDecision` 是否变为 `CHANGES_REQUESTED`、`APPROVED`，或在无强制 review 仓库中保持 `null` 但已技术可合并。
-- `mergeStateStatus` 是否变为 `BEHIND`、`BLOCKED`、`DIRTY`；其中 `BLOCKED` 只作为 GitHub 汇总信号记录和人工判断，不单独生成 task 或 notify。
-- 本地记录是否需要更新。
+- **主 agent**（本会话）：聚焦于寻找新 PR 机会，完成从筛选到提交的全流程。
+- **subagent**（通过 event listener 派发）：处理已有 PR 的 CI failure、review comments、rebase 等事件。
 
-CI 失败优先级最高。必须先获取失败详情，再进入对应 `candidates/` 仓库本地复现和修复。不要在没有日志或测试证据时猜根因。
+状态机（参见第 4 节）描述主 agent 的一轮工作流程。subagent 按 event_task.json 中的 task 驱动，不走状态机。
 
 ### 6.2 Scout：寻找候选项目
 
