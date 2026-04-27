@@ -374,6 +374,7 @@ PR 提交后，工作没有结束。
 - 状态型 task 会先按 actionability 分类：明确需要 contributor、maintainer、人类决策或基础设施处理的任务直接 `blocked`；agent 可行动或无法确定的任务才允许自动派发。
 - `pending` / `dead` task 只在底层触发条件仍然成立时继续保留；如果触发条件消失，会在后续扫描中自动回收，不再阻塞 dedupe。
 - 评论 backlog 按 `MAINTAINER_COMMENT`、`BOT_COMMENT`、`NEW_COMMENT` 三类独立跟踪，同一轮扫描里可以并存，不再折叠成单条评论 task。
+- `BOT_COMMENT` 会记录触发 task 的 bot review comment ID；当这些 review comment 全部出现非 bot 回复时，listener 会自动推进 `commentBaselines.bot` 并清理该 task。
 - 配置的 contributor login 自己发布的评论和 review 不生成 `NEW_COMMENT`，避免 agent 回复后再把自己的回复派发成新任务。
 
 运行产物固定写入 launcher 根目录；`--cwd` 只影响 Claude 工作目录，不改变这些 runtime JSON 的位置：

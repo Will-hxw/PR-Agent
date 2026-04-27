@@ -44,6 +44,7 @@ function makeActivity({
   body = "",
   state = null,
   updatedAt = createdAt,
+  inReplyTo = null,
 } = {}) {
   return {
     stream,
@@ -55,6 +56,7 @@ function makeActivity({
     authorAssociation,
     body,
     state,
+    inReplyTo,
     url: `https://example.com/${stream}/${id}`,
   };
 }
@@ -1819,6 +1821,241 @@ test("edited existing comments create category tasks", async () => {
     tasksByType.NEW_COMMENT.details.activities.map((activity) => activity.excerpt),
     ["edited user follow-up"],
   );
+});
+
+test("activity summaries preserve review reply parent ids", () => {
+  const summary = agent.createActivitySummary(makeActivity({
+    stream: "review_comment",
+    id: 900,
+    createdAt: "2026-04-24T00:01:00.000Z",
+    authorLogin: "example-user",
+    inReplyTo: "899",
+    body: "handled",
+  }));
+
+  assert.equal(summary.inReplyTo, "899");
+});
+
+test("review comment normalization preserves reply parent ids", () => {
+  const normalized = agent.normalizeReviewComment({
+    id: 901,
+    created_at: "2026-04-24T00:01:00.000Z",
+    updated_at: "2026-04-24T00:01:00.000Z",
+    in_reply_to_id: 900,
+    user: {
+      login: "example-user",
+      type: "User",
+    },
+    body: "handled",
+    html_url: "https://example.com/review-comment/901",
+  });
+
+  assert.equal(normalized.stream, "review_comment");
+  assert.equal(normalized.id, "901");
+  assert.equal(normalized.inReplyTo, "900");
+});
+
+test("bot comment task is removed when all triggering review comments have human replies", async () => {
+  const listener = createListener();
+  const firstSnapshot = makeSnapshot({
+    prKey: "demo/repo#84",
+    reviewComments: [
+      makeActivity({
+        stream: "review_comment",
+        id: 910,
+        createdAt: "2026-04-24T00:01:00.000Z",
+        authorLogin: "review-bot[bot]",
+        authorType: "Bot",
+        body: "first bot review comment",
+      }),
+      makeActivity({
+        stream: "review_comment",
+        id: 911,
+        createdAt: "2026-04-24T00:02:00.000Z",
+        authorLogin: "review-bot[bot]",
+        authorType: "Bot",
+        body: "second bot review comment",
+      }),
+    ],
+  });
+  await listener._scanSnapshot(firstSnapshot);
+
+  assert.equal(listener.taskManager.events.length, 1);
+  assert.equal(listener.taskManager.events[0].type, "BOT_COMMENT");
+  assert.deepStrictEqual(listener.taskManager.events[0].details.awaitingReplyReviewCommentIds, ["910", "911"]);
+
+  await listener._scanSnapshot(makeSnapshot({
+    prKey: firstSnapshot.prKey,
+    updatedAt: "2026-04-24T00:05:00.000Z",
+    reviewComments: [
+      ...firstSnapshot.reviewComments,
+      makeActivity({
+        stream: "review_comment",
+        id: 912,
+        createdAt: "2026-04-24T00:03:00.000Z",
+        authorLogin: "example-user",
+        inReplyTo: "910",
+        body: "handled first",
+      }),
+      makeActivity({
+        stream: "review_comment",
+        id: 913,
+        createdAt: "2026-04-24T00:04:00.000Z",
+        authorLogin: "example-user",
+        inReplyTo: "911",
+        body: "handled second",
+      }),
+    ],
+  }));
+
+  assert.equal(listener.taskManager.events.length, 0);
+  const entry = listener.state.getOrInit(firstSnapshot.prKey);
+  assert.equal(entry.baseline.commentBaselines.bot.reviewCommentCursor.lastId, "911");
+  assert.ok(listener.actionLogger.lines.some((line) => line.includes("reason=bot_review_comments_replied replied=2")));
+});
+
+test("bot comment task stays pending when only some review comments have human replies", async () => {
+  const listener = createListener();
+  const firstSnapshot = makeSnapshot({
+    prKey: "demo/repo#85",
+    reviewComments: [
+      makeActivity({
+        stream: "review_comment",
+        id: 920,
+        createdAt: "2026-04-24T00:01:00.000Z",
+        authorLogin: "review-bot[bot]",
+        authorType: "Bot",
+        body: "first bot review comment",
+      }),
+      makeActivity({
+        stream: "review_comment",
+        id: 921,
+        createdAt: "2026-04-24T00:02:00.000Z",
+        authorLogin: "review-bot[bot]",
+        authorType: "Bot",
+        body: "second bot review comment",
+      }),
+    ],
+  });
+  await listener._scanSnapshot(firstSnapshot);
+
+  await listener._scanSnapshot(makeSnapshot({
+    prKey: firstSnapshot.prKey,
+    updatedAt: "2026-04-24T00:04:00.000Z",
+    reviewComments: [
+      ...firstSnapshot.reviewComments,
+      makeActivity({
+        stream: "review_comment",
+        id: 922,
+        createdAt: "2026-04-24T00:03:00.000Z",
+        authorLogin: "example-user",
+        inReplyTo: "920",
+        body: "handled first",
+      }),
+    ],
+  }));
+
+  assert.equal(listener.taskManager.events.length, 1);
+  const task = listener.taskManager.events[0];
+  assert.equal(task.type, "BOT_COMMENT");
+  assert.deepStrictEqual(task.details.replyResolution.awaitedIds, ["920", "921"]);
+  assert.deepStrictEqual(task.details.replyResolution.repliedIds, ["920"]);
+  assert.deepStrictEqual(task.details.replyResolution.unresolvedIds, ["921"]);
+});
+
+test("bot comment task is not removed by bot replies", async () => {
+  const listener = createListener();
+  const firstSnapshot = makeSnapshot({
+    prKey: "demo/repo#86",
+    reviewComments: [
+      makeActivity({
+        stream: "review_comment",
+        id: 930,
+        createdAt: "2026-04-24T00:01:00.000Z",
+        authorLogin: "review-bot[bot]",
+        authorType: "Bot",
+        body: "bot review comment",
+      }),
+    ],
+  });
+  await listener._scanSnapshot(firstSnapshot);
+
+  await listener._scanSnapshot(makeSnapshot({
+    prKey: firstSnapshot.prKey,
+    updatedAt: "2026-04-24T00:03:00.000Z",
+    reviewComments: [
+      ...firstSnapshot.reviewComments,
+      makeActivity({
+        stream: "review_comment",
+        id: 931,
+        createdAt: "2026-04-24T00:02:00.000Z",
+        authorLogin: "review-bot[bot]",
+        authorType: "Bot",
+        inReplyTo: "930",
+        body: "bot follow-up",
+      }),
+    ],
+  }));
+
+  assert.equal(listener.taskManager.events.length, 1);
+  assert.deepStrictEqual(listener.taskManager.events[0].details.replyResolution.unresolvedIds, ["930"]);
+});
+
+test("legacy bot comment task falls back to activity ids for reply cleanup", async () => {
+  const listener = createListener();
+  const botComment = makeActivity({
+    stream: "review_comment",
+    id: 940,
+    createdAt: "2026-04-24T00:01:00.000Z",
+    authorLogin: "review-bot[bot]",
+    authorType: "Bot",
+    body: "legacy bot review comment",
+  });
+  const firstSnapshot = makeSnapshot({
+    prKey: "demo/repo#87",
+    reviewComments: [botComment],
+  });
+  listener.state.getOrInit(firstSnapshot.prKey).baseline = agent.baselineFromSnapshot(firstSnapshot);
+  listener.taskManager.add(
+    firstSnapshot.prKey,
+    "BOT_COMMENT",
+    agent.TASK_EVENT_SEVERITY.BOT_COMMENT,
+    {
+      activities: [agent.createActivitySummary(botComment)],
+      latestActivity: agent.createActivitySummary(botComment),
+    },
+    agent.buildBoundaryFromCategorySnapshot(firstSnapshot, "bot"),
+  );
+
+  await listener._scanSnapshot(makeSnapshot({
+    prKey: firstSnapshot.prKey,
+    updatedAt: "2026-04-24T00:03:00.000Z",
+    reviewComments: [
+      botComment,
+      makeActivity({
+        stream: "review_comment",
+        id: 941,
+        createdAt: "2026-04-24T00:02:00.000Z",
+        authorLogin: "example-user",
+        inReplyTo: "940",
+        body: "handled",
+      }),
+    ],
+    reviews: [
+      makeActivity({
+        stream: "review",
+        id: 942,
+        createdAt: "2026-04-24T00:03:00.000Z",
+        authorLogin: "review-bot[bot]",
+        authorType: "Bot",
+        state: "COMMENTED",
+        body: "bot review summary",
+      }),
+    ],
+  }));
+
+  assert.equal(listener.taskManager.events.length, 0);
+  assert.ok(listener.actionLogger.lines.some((line) => line.includes("reason=bot_review_comments_replied replied=1")));
 });
 
 test("own contributor comments do not create comment tasks", async () => {

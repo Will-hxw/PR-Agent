@@ -214,6 +214,7 @@ node run-claude-agent.js --no-event-listener
 - 状态型 task 在扫描和失败重试前会先做 actionability 分类：明确需要 contributor、maintainer、人类决策或基础设施处理的任务直接进入 `blocked`，只有 agent 可行动或无法确定的任务才会进入自动派发。
 - 成功后的状态刷新以 GitHub 最新数据为准；评论类 cursor 只推进到 task 创建时的 boundary，然后立即对该 PR 局部重扫，避免吞掉处理中途到达的新评论。
 - 评论 backlog 按 `MAINTAINER_COMMENT`、`BOT_COMMENT`、`NEW_COMMENT` 三类独立跟踪，同一轮扫描里最多可并存三条评论 task。
+- `BOT_COMMENT` 会记录触发 task 的 bot review comment ID；当这些 review comment 全部出现非 bot 回复时，listener 会自动推进 `commentBaselines.bot` 并清理该 task。
 - 配置的 contributor login 自己发布的评论和 review 不生成 `NEW_COMMENT`，避免 agent 回复后再把自己的回复派发成新任务。
 
 具体处理流程以 `AGENT.md` 的 Review / CI 跟进规则和 `doc/event-task-state-maintenance.md` 的状态维护规则为准。

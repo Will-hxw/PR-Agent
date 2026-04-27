@@ -624,6 +624,10 @@ function cloneJson(value) {
   return value == null ? value : JSON.parse(JSON.stringify(value));
 }
 
+function normalizeActivityId(value) {
+  return value == null ? null : String(value);
+}
+
 function buildActivityFingerprint(activity) {
   return createHash("sha256").update(JSON.stringify({
     stream: activity?.stream || null,
@@ -1107,6 +1111,54 @@ function commentCategoryForTaskType(type) {
   return COMMENT_CATEGORY_BY_TASK_TYPE[type] || null;
 }
 
+function uniqueNormalizedIds(values) {
+  const ids = [];
+  const seen = new Set();
+  for (const value of values || []) {
+    const id = normalizeActivityId(value);
+    if (!id || seen.has(id)) {
+      continue;
+    }
+    seen.add(id);
+    ids.push(id);
+  }
+  return ids;
+}
+
+function extractBotReviewCommentIds(activities) {
+  return uniqueNormalizedIds(
+    (activities || [])
+      .filter((activity) => activity?.stream === "review_comment" && !activity.inReplyTo && isBotActor(activity))
+      .map((activity) => activity.id),
+  );
+}
+
+function extractAwaitingReplyReviewCommentIds(details) {
+  if (Array.isArray(details?.awaitingReplyReviewCommentIds)) {
+    return uniqueNormalizedIds(details.awaitingReplyReviewCommentIds);
+  }
+  return extractBotReviewCommentIds(details?.activities || []);
+}
+
+function buildReviewCommentReplyResolution(snapshot, awaitingIds) {
+  const awaitedIds = uniqueNormalizedIds(awaitingIds);
+  const awaited = new Set(awaitedIds);
+  const replied = new Set();
+  for (const comment of snapshot?.reviewComments || []) {
+    const parentId = normalizeActivityId(comment?.inReplyTo);
+    if (parentId && awaited.has(parentId) && !isBotActor(comment)) {
+      replied.add(parentId);
+    }
+  }
+  const repliedIds = awaitedIds.filter((id) => replied.has(id));
+  const unresolvedIds = awaitedIds.filter((id) => !replied.has(id));
+  return {
+    awaitedIds,
+    repliedIds,
+    unresolvedIds,
+  };
+}
+
 function compareActivityChronologically(left, right) {
   const createdDelta = parseTimestampMs(left.createdAt) - parseTimestampMs(right.createdAt);
   if (createdDelta !== 0) {
@@ -1245,6 +1297,7 @@ function createActivitySummary(activity) {
     authorType: activity.authorType,
     authorAssociation: activity.authorAssociation,
     state: activity.state || null,
+    inReplyTo: activity.inReplyTo || null,
     url: activity.url || null,
     excerpt: activity.body ? truncate(trimMultiline(activity.body), 200) : "",
   };
@@ -2165,6 +2218,7 @@ function normalizeReviewComment(raw) {
     authorLogin: raw.user?.login || null,
     authorType: raw.user?.type || null,
     state: null,
+    inReplyTo: raw.in_reply_to_id != null ? String(raw.in_reply_to_id) : raw.inReplyTo != null ? String(raw.inReplyTo) : null,
     body: raw.body || "",
     url: raw.html_url || raw.url || null,
   };
@@ -3246,17 +3300,24 @@ class EventListener {
         continue;
       }
       const type = COMMENT_TASK_TYPE_BY_CATEGORY[category];
+      const activitySummaries = activities.items.map(createActivitySummary);
       const latestActivity = createActivitySummary(activities.items[activities.items.length - 1]);
+      const extraDetails = {
+        activities: activitySummaries,
+        activityCount: activities.items.length,
+        streamCounts: activities.counts,
+        latestActivity,
+      };
+      if (type === "BOT_COMMENT") {
+        const awaitingReplyReviewCommentIds = extractBotReviewCommentIds(activities.items);
+        extraDetails.awaitingReplyReviewCommentIds = awaitingReplyReviewCommentIds;
+        extraDetails.replyResolution = buildReviewCommentReplyResolution(snapshot, awaitingReplyReviewCommentIds);
+      }
       candidateTasks.set(type, {
         type,
         severity: TASK_EVENT_SEVERITY[type],
         boundary: buildBoundaryFromCategorySnapshot(snapshot, category),
-        details: buildTaskDetails(type, snapshot, {
-          activities: activities.items.map(createActivitySummary),
-          activityCount: activities.items.length,
-          streamCounts: activities.counts,
-          latestActivity,
-        }),
+        details: buildTaskDetails(type, snapshot, extraDetails),
       });
     }
 
@@ -3324,12 +3385,32 @@ class EventListener {
         continue;
       }
       const previousTaskResult = primary.status === TASK_STATUS.BLOCKED ? primary.details?.taskResult : null;
+      const previousDetails = primary.details;
       const boundaryAdvanced = parseTimestampMs(candidate.boundary?.snapshotUpdatedAt) > parseTimestampMs(primary.boundary?.snapshotUpdatedAt);
       primary.details = cloneJson(candidate.details);
       if (previousTaskResult) {
         primary.details.taskResult = cloneJson(previousTaskResult);
       }
       primary.boundary = normalizeBoundary(candidate.boundary);
+      if (primary.type === "BOT_COMMENT") {
+        const awaitingReplyReviewCommentIds = extractAwaitingReplyReviewCommentIds(primary.details);
+        const fallbackAwaitingIds = extractAwaitingReplyReviewCommentIds(previousDetails);
+        const replyResolution = buildReviewCommentReplyResolution(
+          snapshot,
+          awaitingReplyReviewCommentIds.length > 0 ? awaitingReplyReviewCommentIds : fallbackAwaitingIds,
+        );
+        primary.details.awaitingReplyReviewCommentIds = replyResolution.awaitedIds;
+        primary.details.replyResolution = replyResolution;
+        if (replyResolution.awaitedIds.length > 0 && replyResolution.unresolvedIds.length === 0) {
+          this.state.applyTaskSuccess(primary, snapshot);
+          this.taskManager.remove(primary.id);
+          this.actionLogger.writeLine(
+            `[${nowStamp()}] event_reconciled_resolved pr=${snapshot.prKey} type=${primary.type} task=${primary.id} reason=bot_review_comments_replied replied=${replyResolution.repliedIds.length}`,
+          );
+          candidateTasks.delete(type);
+          continue;
+        }
+      }
       if (candidate.actionability?.shouldBlock) {
         const wasBlocked = primary.status === TASK_STATUS.BLOCKED;
         this.taskManager.block(
@@ -3367,6 +3448,23 @@ class EventListener {
     }
 
     for (const event of candidateTasks.values()) {
+      if (event.type === "BOT_COMMENT") {
+        const replyResolution = buildReviewCommentReplyResolution(
+          snapshot,
+          extractAwaitingReplyReviewCommentIds(event.details),
+        );
+        if (replyResolution.awaitedIds.length > 0 && replyResolution.unresolvedIds.length === 0) {
+          this.state.applyTaskSuccess({
+            prKey: snapshot.prKey,
+            type: event.type,
+            boundary: event.boundary,
+          }, snapshot);
+          this.actionLogger.writeLine(
+            `[${nowStamp()}] event_reconciled_resolved pr=${snapshot.prKey} type=${event.type} task=none reason=bot_review_comments_replied replied=${replyResolution.repliedIds.length}`,
+          );
+          continue;
+        }
+      }
       if (this.taskManager.hasTaskForPrAndType(snapshot.prKey, event.type)) {
         this.actionLogger.writeLine(`[${nowStamp()}] event_deduped pr=${snapshot.prKey} type=${event.type}`);
         continue;
@@ -4602,6 +4700,7 @@ if (require.main === module) {
     normalizeBoundary,
     normalizeBoundaryTimestamp,
     normalizeTaskRecord,
+    normalizeReviewComment,
     normalizeCommentBaselines,
     normalizeCommentCursorSet,
     parseFinalTaskResultText,
