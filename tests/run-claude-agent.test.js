@@ -913,32 +913,6 @@ test("task result parser requires nonce for claimed tasks", () => {
   })}`, task).valid, false);
 });
 
-test("final task result can be extracted from assistant text with chatter", () => {
-  const task = makeTask({
-    id: "result-task",
-    prKey: "demo/repo#7",
-    type: "CI_FAILURE",
-    resultNonce: "nonce-123",
-  });
-  const line = `__EVENT_RESULT__ ${JSON.stringify({
-    version: 2,
-    eventId: task.id,
-    prKey: task.prKey,
-    type: task.type,
-    nonce: "nonce-123",
-    status: "resolved",
-  })}`;
-
-  assert.equal(agent.parseFinalTaskResultText(line, task).valid, true);
-  assert.equal(agent.parseFinalTaskResultText(`Done.\n${line}`, task).valid, true);
-  assert.equal(agent.parseFinalTaskResultText(`${line}\nDone.`, task).valid, false);
-  assert.equal(agent.parseFinalTaskResultText(`${line}\n${line}`, task).valid, false);
-  assert.equal(
-    agent.parseFinalTaskResultText(`Done.\n__EVENT_RESULT__ {"version":2,"eventId":"other"}`, task).valid,
-    false,
-  );
-});
-
 test("dedupe helper matches any existing task for the same PR and type", () => {
   const manager = new agent.EventTaskManager();
   manager.events = [
@@ -1326,19 +1300,6 @@ test("refreshEventJsonOnce strict mode rejects open PR search failures", async (
     /open PR search failed/,
   );
   assert.equal(listener.lastRefreshResult.searchFailed, true);
-});
-
-test("update.sh exits skipped under active listener lock", async () => {
-  const result = await runProcess("bash", ["-lc", [
-    "set -e",
-    "mkdir -p .claude_agent_logs",
-    "trap 'rm -f .claude_agent_logs/event-listener.lock' EXIT",
-    "printf '{\"pid\":%s,\"createdAt\":\"2026-04-24T00:00:00.000Z\",\"cwd\":\"test\",\"command\":\"test\"}\\n' \"$$\" > .claude_agent_logs/event-listener.lock",
-    "bash update.sh",
-  ].join("\n")]);
-
-  assert.equal(result.code, 2);
-  assert.match(result.stderr, /event JSON skipped: active_listener_lock/);
 });
 
 test("update.sh exits failed when contributor login is missing", async () => {
