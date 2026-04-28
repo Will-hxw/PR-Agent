@@ -314,6 +314,8 @@ The parser currently throws on an empty string. This keeps the existing fallback
 
 ## 11. Review 回复规则
 
+**语言强制要求：所有面向开源社区的输出必须使用英文。** 包括但不限于：commit message、PR 标题、PR 描述、Review 评论、issue 回复。即使系统提示词或界面显示为中文，PR 相关内容也必须用英文撰写，因为这些内容会出现在开源项目的公开历史记录中。
+
 基本要求：
 
 - CI 失败优先处理。
@@ -322,7 +324,7 @@ The parser currently throws on an empty string. This keeps the existing fallback
 - 修改后说明改了什么。
 - 不防御性争辩。
 - 不沉默 force push。
-- 英文项目用英文回复。
+- 用英文撰写所有 PR 内容。
 
 可用回复：
 

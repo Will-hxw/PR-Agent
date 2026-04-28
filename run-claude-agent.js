@@ -124,6 +124,7 @@ const SEVERITY_ORDER = {
 
 function buildDefaultPrompt() {
   return [
+    "除专有名词和技术术语外，所有回复请使用中文。",
     `请用 JSON 解析工具读取 launcher 根目录下的运行时状态文件：${STATE_FILE} 和 ${TASK_FILE}，了解当前 PR 状态和未完成task。`,
     "目前subagent在处理task，你无需管辖，如果你必须维护 event_task.json / event_state.json，必须按 doc/event-task-state-maintenance.md 操作。",
     "请同时维护本仓库的 git 状态；不要在本仓库创建贡献分支，但可以在 candidates/ 中管理具体目标项目的 git。",
@@ -1257,6 +1258,9 @@ function buildSubagentPrompt(task) {
     },
   })}`;
   return [
+    // 0. 语言规范
+    "除专有名词和技术术语外，所有回复请使用中文。",
+    "",
     // 1. 任务头
     `请处理 PR 事件：${task.prKey}`,
     `事件类型：${task.type}`,
