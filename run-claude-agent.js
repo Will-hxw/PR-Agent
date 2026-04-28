@@ -3167,15 +3167,27 @@ class EventListener {
       await this._cleanupTerminalPrs(openPrKeys);
 
       for (const pr of prList) {
-        try {
-          const snapshot = await this.fetchPrSnapshot(pr.prKey, {
-            timeoutMs: GH_TIMEOUT_MS,
-          });
+        let snapshot = null;
+        let scanError = null;
+        for (let attempt = 0; attempt < 3; attempt++) {
+          try {
+            snapshot = await this.fetchPrSnapshot(pr.prKey, {
+              timeoutMs: GH_TIMEOUT_MS,
+            });
+            break;
+          } catch (error) {
+            scanError = error;
+            if (attempt < 2) {
+              await new Promise((r) => setTimeout(r, 1000));
+            }
+          }
+        }
+        if (snapshot) {
           await this._scanSnapshot(snapshot);
           scannedPrKeys.push(pr.prKey);
-        } catch (error) {
+        } else {
           failedPrKeys.push(pr.prKey);
-          this.actionLogger.writeLine(`${logPrefix} pr_scan_failed pr=${pr.prKey} err=${truncate(error.message || error, 300)}`);
+          this.actionLogger.writeLine(`${logPrefix} pr_scan_failed pr=${pr.prKey} err=${truncate(scanError?.message || scanError, 300)}`);
         }
       }
     });
