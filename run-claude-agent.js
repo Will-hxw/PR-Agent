@@ -1758,6 +1758,18 @@ function buildTaskResultDetail(result) {
   return detail;
 }
 
+function hasContributorActivityAfterBoundary(snapshot, boundary) {
+  const boundaryMs = parseTimestampMs(boundary?.snapshotUpdatedAt);
+  if (!boundaryMs) {
+    return false;
+  }
+  return [
+    ...(snapshot?.issueComments || []),
+    ...(snapshot?.reviewComments || []),
+    ...(snapshot?.reviews || []),
+  ].some((activity) => isContributorActivity(activity) && parseTimestampMs(activity.createdAt) > boundaryMs);
+}
+
 function buildBlockedTaskDetailsFromResult(task, result, snapshot = null) {
   const details = cloneJson(task.details || {});
   if (snapshot) {
@@ -1934,10 +1946,7 @@ function parseTaskResultLine(line, task) {
 async function verifyTaskCompletionViaGh(task, ghSucceeded, options = {}) {
   const {
     fetchPrSnapshot,
-    classifyActivityCategory,
-    buildCommentCursorSet,
     COMMENT_TASK_TYPES,
-    COMMENT_CATEGORY_BY_TASK_TYPE,
     STATE_BACKED_TASK_TYPES,
     isTaskTriggerActive,
   } = options;
@@ -1961,22 +1970,7 @@ async function verifyTaskCompletionViaGh(task, ghSucceeded, options = {}) {
 
   // ---------- 评论类任务验证 ----------
   if (COMMENT_TASK_TYPES.has(task.type)) {
-    const category = COMMENT_CATEGORY_BY_TASK_TYPE[task.type];
-    const bc = task.boundary || {};
-    const savedCursorSet = {
-      issueCommentCursor: bc.issueCommentCursor,
-      reviewCommentCursor: bc.reviewCommentCursor,
-      reviewCursor: bc.reviewCursor,
-    };
-    const currentCursorSet = buildCommentCursorSet(
-      (snapshot.issueComments || []).filter((a) => classifyActivityCategory(a) === category),
-      (snapshot.reviewComments || []).filter((a) => classifyActivityCategory(a) === category),
-      (snapshot.reviews || []).filter((a) => classifyActivityCategory(a) === category),
-    );
-    const advanced =
-      currentCursorSet.issueCommentCursor.value !== (savedCursorSet.issueCommentCursor?.value ?? null)
-      || currentCursorSet.reviewCommentCursor.value !== (savedCursorSet.reviewCommentCursor?.value ?? null)
-      || currentCursorSet.reviewCursor.value !== (savedCursorSet.reviewCursor?.value ?? null);
+    const advanced = hasContributorActivityAfterBoundary(snapshot, task.boundary);
     return {
       verified: advanced,
       reason: advanced ? "comment_posted" : "comment_not_posted",
@@ -3861,10 +3855,7 @@ class EventListener {
         // A5-A6: gh 成功但 result 缺失/无效 → 用 gh 验证 PR 实际状态
         const verified = await verifyTaskCompletionViaGh(task, ghSucceeded, {
           fetchPrSnapshot: this.fetchPrSnapshot,
-          classifyActivityCategory,
-          buildCommentCursorSet,
           COMMENT_TASK_TYPES,
-          COMMENT_CATEGORY_BY_TASK_TYPE,
           STATE_BACKED_TASK_TYPES,
           isTaskTriggerActive,
         });

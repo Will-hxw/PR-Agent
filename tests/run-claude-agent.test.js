@@ -704,6 +704,250 @@ test("comment task result with valid nonce still requires evidence", async () =>
   assert.match(updated.lastError, /missing_comment_task_evidence/);
 });
 
+test("outputless successful subagent verifies all comment task types from contributor follow-up", async () => {
+  const cases = [
+    {
+      type: "MAINTAINER_COMMENT",
+      category: "maintainer",
+      prKey: "demo/repo#172",
+      base: {
+        issueComments: [
+          makeActivity({
+            id: 1720,
+            createdAt: "2026-04-24T00:01:00.000Z",
+            authorLogin: "maintainer",
+            authorAssociation: "OWNER",
+            body: "Please update the docs.",
+          }),
+        ],
+      },
+      followUp: {
+        issueComments: [
+          makeActivity({
+            id: 1721,
+            createdAt: "2026-04-24T00:03:00.000Z",
+            authorLogin: "example-user",
+            body: "Updated and replied.",
+          }),
+        ],
+      },
+      expectedCursor: "issueCommentCursor",
+      expectedLastId: "1720",
+    },
+    {
+      type: "BOT_COMMENT",
+      category: "bot",
+      prKey: "demo/repo#173",
+      base: {
+        reviewComments: [
+          makeActivity({
+            stream: "review_comment",
+            id: 1730,
+            createdAt: "2026-04-24T00:01:00.000Z",
+            authorLogin: "review-bot[bot]",
+            authorType: "Bot",
+            body: "Bot suggestion.",
+          }),
+        ],
+      },
+      followUp: {
+        reviewComments: [
+          makeActivity({
+            stream: "review_comment",
+            id: 1731,
+            createdAt: "2026-04-24T00:03:00.000Z",
+            authorLogin: "example-user",
+            inReplyTo: "1730",
+            body: "Handled.",
+          }),
+        ],
+      },
+      expectedCursor: "reviewCommentCursor",
+      expectedLastId: "1730",
+    },
+    {
+      type: "NEW_COMMENT",
+      category: "user",
+      prKey: "demo/repo#174",
+      base: {
+        issueComments: [
+          makeActivity({
+            id: 1740,
+            createdAt: "2026-04-24T00:01:00.000Z",
+            authorLogin: "external-user",
+            body: "Question from another user.",
+          }),
+        ],
+      },
+      followUp: {
+        issueComments: [
+          makeActivity({
+            id: 1741,
+            createdAt: "2026-04-24T00:03:00.000Z",
+            authorLogin: "example-user",
+            body: "Answered.",
+          }),
+        ],
+      },
+      expectedCursor: "issueCommentCursor",
+      expectedLastId: "1740",
+    },
+  ];
+
+  for (const item of cases) {
+    const baseSnapshot = makeSnapshot({
+      prKey: item.prKey,
+      updatedAt: "2026-04-24T00:02:00.000Z",
+      ...item.base,
+    });
+    const refreshedSnapshot = makeSnapshot({
+      prKey: item.prKey,
+      updatedAt: "2026-04-24T00:04:00.000Z",
+      issueComments: [
+        ...baseSnapshot.issueComments,
+        ...(item.followUp.issueComments || []),
+      ],
+      reviewComments: [
+        ...baseSnapshot.reviewComments,
+        ...(item.followUp.reviewComments || []),
+      ],
+      reviews: [
+        ...baseSnapshot.reviews,
+        ...(item.followUp.reviews || []),
+      ],
+    });
+    const listener = createListener({
+      showSubagentOutput: false,
+      fetchPrSnapshot: async () => refreshedSnapshot,
+    });
+    listener.saveAll = async () => {};
+    const child = new EventEmitter();
+    child.stdout = new EventEmitter();
+    child.stderr = new EventEmitter();
+    child.stdin = {
+      write() {},
+      end() {},
+    };
+    child.pid = Number.parseInt(item.prKey.match(/#(\d+)$/)[1], 10);
+    listener._spawnSubagent = () => child;
+
+    const task = listener.taskManager.add(
+      item.prKey,
+      item.type,
+      agent.TASK_EVENT_SEVERITY[item.type],
+      { snapshotSummary: "comment" },
+      agent.buildBoundaryFromCategorySnapshot(baseSnapshot, item.category),
+    );
+
+    await listener._startTask(task);
+    child.emit("close", 0, null);
+    await waitFor(() => listener.taskManager.getById(task.id) === null);
+
+    const entry = listener.state.getOrInit(item.prKey);
+    assert.equal(entry.baseline.commentBaselines[item.category][item.expectedCursor].lastId, item.expectedLastId);
+    assert.ok(listener.actionLogger.lines.some((line) => line.includes("subagent_verified_success")));
+  }
+});
+
+test("outputless successful subagent verifies all state-backed task types when triggers clear", async () => {
+  const cases = [
+    {
+      type: "CI_FAILURE",
+      prKey: "demo/repo#175",
+      base: {
+        statusCheckState: "FAILED",
+        failingChecks: [{ label: "ci", conclusion: "FAILURE" }],
+      },
+      refreshed: {
+        statusCheckState: "SUCCESS",
+        failingChecks: [],
+      },
+      expectedBaseline: ["statusCheckState", "SUCCESS"],
+    },
+    {
+      type: "REVIEW_CHANGES_REQUESTED",
+      prKey: "demo/repo#176",
+      base: {
+        reviewDecision: "CHANGES_REQUESTED",
+        reviews: [
+          makeActivity({
+            stream: "review",
+            id: 1760,
+            createdAt: "2026-04-24T00:01:00.000Z",
+            authorLogin: "maintainer",
+            authorAssociation: "OWNER",
+            state: "CHANGES_REQUESTED",
+            body: "Please change this.",
+          }),
+        ],
+      },
+      refreshed: {
+        reviewDecision: "APPROVED",
+      },
+      expectedBaseline: ["reviewDecision", "APPROVED"],
+    },
+    {
+      type: "NEEDS_REBASE",
+      prKey: "demo/repo#177",
+      base: {
+        mergeStateStatus: "BEHIND",
+        mergeable: "MERGEABLE",
+      },
+      refreshed: {
+        mergeStateStatus: "CLEAN",
+        mergeable: "MERGEABLE",
+      },
+      expectedBaseline: ["mergeStateStatus", "CLEAN"],
+    },
+  ];
+
+  for (const item of cases) {
+    const baseSnapshot = makeSnapshot({
+      prKey: item.prKey,
+      updatedAt: "2026-04-24T00:02:00.000Z",
+      ...item.base,
+    });
+    const refreshedSnapshot = makeSnapshot({
+      prKey: item.prKey,
+      updatedAt: "2026-04-24T00:04:00.000Z",
+      ...item.refreshed,
+    });
+    const listener = createListener({
+      showSubagentOutput: false,
+      fetchPrSnapshot: async () => refreshedSnapshot,
+    });
+    listener.saveAll = async () => {};
+    const child = new EventEmitter();
+    child.stdout = new EventEmitter();
+    child.stderr = new EventEmitter();
+    child.stdin = {
+      write() {},
+      end() {},
+    };
+    child.pid = Number.parseInt(item.prKey.match(/#(\d+)$/)[1], 10);
+    listener._spawnSubagent = () => child;
+
+    const task = listener.taskManager.add(
+      item.prKey,
+      item.type,
+      agent.TASK_EVENT_SEVERITY[item.type],
+      { snapshotSummary: "state-backed" },
+      item.type === "REVIEW_CHANGES_REQUESTED"
+        ? agent.buildBoundaryFromCategorySnapshot(baseSnapshot, "maintainer")
+        : agent.buildBoundaryFromSnapshot(baseSnapshot),
+    );
+
+    await listener._startTask(task);
+    child.emit("close", 0, null);
+    await waitFor(() => listener.taskManager.getById(task.id) === null);
+
+    const [field, value] = item.expectedBaseline;
+    const entry = listener.state.getOrInit(item.prKey);
+    assert.equal(entry.baseline[field], value);
+    assert.ok(listener.actionLogger.lines.some((line) => line.includes("subagent_verified_success")));
+  }
+});
+
 test("subagent finalize does not recreate an externally deleted task", async () => {
   const runtime = await createRuntimeFiles();
   try {
