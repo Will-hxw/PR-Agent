@@ -93,6 +93,8 @@ PR_AGENT_CONTRIBUTOR_LOGIN=your-github-login node run-claude-agent.js
 
 可选设置 `PR_AGENT_READY_TO_MERGE_REVIEW_MODE=allow-no-review-required`，效果等同于 `readyToMergeReviewMode`。
 
+`PR_AGENT_GH_PROXY_MODE` 默认是 `inherit`，所有 `gh` 命令继承当前 shell 的代理环境。若 `update.sh` 或 event listener 反复出现 `EOF`、TLS handshake、`schannel` 之类传输错误，而直接不走代理访问 GitHub 更稳定，可临时设置 `PR_AGENT_GH_PROXY_MODE=direct`；该模式只会在执行 `gh` 子进程时移除 `HTTP_PROXY`、`HTTPS_PROXY`、`ALL_PROXY` 及小写变体，不改变其他进程环境。
+
 PowerShell：
 
 ```powershell
@@ -190,7 +192,7 @@ node run-claude-agent.js --no-event-listener
 |---|---|---|
 | Event listener | 默认开启；`--no-event-listener` 可关闭 | 轮询 open PR，发现 CI、Review、评论、merge 状态变化 |
 
-也可以运行 `update.sh` 做一次性 runtime JSON 刷新；它复用 event listener 启动刷新路径，但不启动 subagent 派发。若已有 listener 持有 active lock，`update.sh` 会输出 `event JSON skipped: active listener lock` 并以退出码 `2` 结束；若 open PR search 失败，会以 strict refresh 失败退出，不能把旧 JSON 当作本次刷新成功。
+也可以运行 `update.sh` 做一次性 runtime JSON 刷新；它复用 event listener 启动刷新路径，但不启动 subagent 派发。若已有 listener 持有 active lock，`update.sh` 会输出 `event JSON skipped: active listener lock` 并以退出码 `2` 结束；若 open PR search 失败，会以 strict refresh 失败退出，不能把旧 JSON 当作本次刷新成功。刷新过程中所有 `gh` 请求在同一 Node 进程内串行执行，并对 `EOF` / TLS handshake 等临时传输错误做有限重试；单个 PR 失败日志会带 `attempt`、`commandKind` 和 `ghAttempt`，用于区分真实失败点和日志时间戳误读。
 
 事件模型分为两类：
 
@@ -312,18 +314,14 @@ node run-claude-agent.js --no-event-listener
 
 获取当前账号所有 upstream open PR：
 
-```powershell
-$login = if ($env:PR_AGENT_CONTRIBUTOR_LOGIN) { $env:PR_AGENT_CONTRIBUTOR_LOGIN } else { (Get-Content agent.config.json | ConvertFrom-Json).contributorLogin }
-$items = @()
-for ($page = 1; $page -le 10; $page++) {
-  $result = gh api --method GET search/issues -f q="author:$login is:pr state:open" -F per_page=100 -F page=$page -f sort=updated | ConvertFrom-Json
-  $pageItems = @($result.items)
-  $items += $pageItems
-  if ($pageItems.Count -lt 100) { break }
-}
-$items |
-  Where-Object { ($_.repository_url -replace '^https://api.github.com/repos/', '') -notlike "$login/*" } |
-  Select-Object number,html_url,@{Name='repository';Expression={$_.repository_url -replace '^https://api.github.com/repos/', ''}}
+```bash
+gh pr list --state open --author @me
+```
+
+查看当前账号在特定仓库的 open PR：
+
+```bash
+gh pr list --repo <owner>/<repo> --state open --author @me
 ```
 
 查看单个 PR 状态：

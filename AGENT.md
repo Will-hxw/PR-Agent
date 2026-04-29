@@ -32,6 +32,7 @@
 
 必须做到：
 
+- **禁止对任何 MCP 相关项目做 PR**。MCP 项目包括但不限于：MCP server、MCP client、MCP SDK/MCP协议实现、以及名称或描述中包含 "MCP" 的项目。这条禁令适用于 Scout、Triage 和 Lock Target 阶段——即使发现了看起来简单的 bug 或文档问题，也不应选取 MCP 项目作为 PR 目标。原因：MCP 生态变化快、外部贡献风险高、协议层修改往往需要维护者直接参与。
 - 只选择 GitHub 公开、未归档、仍有维护迹象、上游 stars 大于 50 的项目。
 - 一次只推进一个目标仓库；当前仓库进入 `PR 已提交` 或 `已记录放弃` 后，才开始下一个。
 - 每个 PR 只解决一个清楚的问题，diff 尽量小。
@@ -364,6 +365,7 @@ PR 提交后，工作没有结束。
 - 只有显式传入 `--no-event-listener` 时才只启动主 Claude 会话，不刷新 runtime JSON，也不会派发 PR event task；一次性刷新请使用 `update.sh`。
 - event listener 启动刷新、每次轮询和 `update.sh` 必须调用同一个 `generateEventJson()` 入口生成 `event_state.json` / `event_task.json`；当该入口成功完成并保存后，subagent 派发基于本轮刷新结果，启动刷新产生的 runnable task 也由 launcher/subagent claim。open PR search 失败时本轮不刷新 JSON，但仍会派发已有到期 retry task，避免队列冻结；单个 PR snapshot 失败时，本轮禁止派发该 `prKey` 的 task。
 - `update.sh` 复用启动刷新路径，但不启动 subagent 派发；如果已有 listener 持有 active lock，它会输出 skipped 并以退出码 `2` 结束；如果 open PR search 失败，它会以 strict refresh 失败退出。
+- 所有 `gh` 请求必须经统一队列串行执行，并对 `EOF`、TLS handshake、`schannel`、connection reset、timeout 等临时传输错误做有限重试；404/410/not found 这类业务结果不要重试。`PR_AGENT_GH_PROXY_MODE=direct` 只用于排查代理链路不稳定，它会在 `gh` 子进程环境中移除 proxy 变量，默认 `inherit` 不改变现有代理。
 - `CI_PASSED`、`REVIEW_APPROVED`、`READY_TO_MERGE` 只通知，不写 task。
 - `READY_TO_MERGE` 默认要求 `reviewDecision=APPROVED`。若 `agent.config.json` 的 `readyToMergeReviewMode` 或 CLI 参数 `--ready-to-merge-review-mode` 设置为 `allow-no-review-required`，则 `reviewDecision=null` 且 CI 成功、可合并、无 unresolved review threads 的 PR 也可触发通知；`CHANGES_REQUESTED` 和 `REVIEW_REQUIRED` 仍不会触发。
 - `mergeStateStatus=BLOCKED` 不是 task-backed 事件；`NEEDS_REBASE` 只由 `BEHIND`、`DIRTY` 或 `mergeable=CONFLICTING` 触发。
