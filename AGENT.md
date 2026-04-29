@@ -92,8 +92,6 @@ STARTUP
 
 - `pending`
 - `blocked`
-- 旧 runtime 遗留的 `running`
-- 旧 runtime 遗留的 `dead`
 
 `blocked` 不是跳过理由。它表示需要调查、记录、回复或确认外部条件后才能闭环。外部阻塞类 task 经调查、回复或记录后，也通过推进 handled baseline 并删除 task 收尾；后续状态变化会重新生成新 task。
 

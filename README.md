@@ -196,7 +196,7 @@ event_task.json
 - `boundary`
 - `details`
 
-有效 `status` 为 `pending` 和 `blocked`。旧 runtime 中的 `running` / `dead` 会归一为 `pending`，交给主 Claude 处理。
+有效 `status` 为 `pending` 和 `blocked`。
 
 ### `event_state.json`
 

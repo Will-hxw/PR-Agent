@@ -28,8 +28,6 @@
 - `pending`：等待主 Claude 处理。
 - `blocked`：已经识别为外部条件、维护者、人类决策、infra 或暂不可行动，但仍必须由主 Claude 调查、记录、回复或收尾。
 
-旧 runtime 中遗留的 `running` / `dead` 会在加载时归一为 `pending`，交回主 Claude 队列。旧字段 `claimedAt`、`runningPid`、`lastOutputAt`、`resultNonce`、`attemptCount`、`nextRetryAt`、`lastError` 不再写入新的 task。
-
 ## 通用删除流程
 
 处理完一个 task 后：

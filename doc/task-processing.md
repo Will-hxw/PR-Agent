@@ -6,7 +6,7 @@
 
 1. 启动后先读取 `event_task.json` 和 `event_state.json`。
 2. 只要 `event_task.json.events` 非空，就先处理 task 队列，不先 scout 新 PR。
-3. `pending`、`blocked`、以及旧 runtime 中遗留的 `running` / `dead` task 都要纳入主 Claude 队列处理。
+3. `pending` 和 `blocked` task 都要纳入主 Claude 队列处理。
 4. 每个 task 都要形成可审查结果：已修复、已回复、已确认无需行动、已记录阻塞原因，或已明确放弃并记录原因。
 5. 处理完后必须按 `doc/event-task-state-maintenance.md` 同步更新 `event_state.json` baseline，并从 `event_task.json` 删除对应 task。
 6. 只删除 task 不算完成；未推进 baseline 的 task 可能在下一轮扫描中重建。

@@ -126,7 +126,7 @@ const SEVERITY_ORDER = {
 function buildDefaultPrompt() {
   return [
     "[Agent] You are the single Claude open-source PR Agent. Your goal is to process existing PR tasks, find new contribution opportunities, submit and follow up on GitHub PRs, and keep every contribution small, accurate, and maintainable.",
-    "[Highest priority] On startup, read event_task.json and event_state.json first. If event_task.json contains any task, regardless of pending, blocked, or legacy running/dead state, process the task queue before scouting for new PRs.",
+    "[Highest priority] On startup, read event_task.json and event_state.json first. If event_task.json contains any task, regardless of whether its status is pending or blocked, process the task queue before scouting for new PRs.",
     "[Task closure] For every task, follow doc/task-processing.md to investigate, act, reply, or record the result. After handling it, follow doc/event-task-state-maintenance.md to advance the matching event_state.json baseline and delete the corresponding task from event_task.json. Deleting the task alone is not completion.",
     "[Workflow] STARTUP -> TASK_QUEUE -> Scout -> Triage -> Lock Target -> Implement -> Validate -> Submit PR -> Record -> TASK_QUEUE. Return to TASK_QUEUE after every stage.",
     "[PR restriction] Do not create PRs for any MCP-related project, including MCP Server/Client/SDK/Protocol implementations, repositories containing MCP keywords, or projects using @modelcontextprotocol/* or @anthropic-ai/mcp-sdk dependencies.",
