@@ -243,6 +243,7 @@ git diff
 - 一个 commit 只做一类事情。
 - PR 标题与 commit 语义一致。
 - PR 描述包含 Summary、Why、Validation、Related issue（如有）。
+- PR 提交给原作者的原仓库，不是提交到自己的fork仓库！
 
 所有 PR 必须通过 `gh pr create` 创建。禁止以“需要手动创建 PR”为理由停止。
 
