@@ -166,6 +166,24 @@ bash update.sh
 
 `mergeStateStatus=BLOCKED` 本身不生成 task。`NEEDS_REBASE` 只由 `BEHIND`、`DIRTY` 或 `mergeable=CONFLICTING` 触发。
 
+评论类 task 会扫描四类 PR 评论 activity：
+
+- `issue_comment`：PR Conversation 顶部普通评论。
+- `review_comment`：Files changed 中的 inline review comment。
+- `review`：PR review 总评。
+- `commit_comment`：PR commit 上的评论。
+
+Claude 回复评论 task 时必须让回复可被机器识别。inline review comment 应优先回复原 thread；所有评论回复都应在末尾附加隐藏 marker：
+
+```md
+<!-- pr-agent:handled issue_comment 4328180705 -->
+<!-- pr-agent:handled review_comment 3112722951 -->
+<!-- pr-agent:handled review 4195854742 -->
+<!-- pr-agent:handled commit_comment 123456789 -->
+```
+
+也可以使用 GitHub URL marker，例如 `<!-- pr-agent:handled https://github.com/owner/repo/pull/1#issuecomment-4328180705 -->`。没有 marker 的普通 PR Conversation/review/commit 回复不会自动关闭 task。
+
 ## Runtime JSON
 
 runtime 文件固定写入 launcher 根目录：
@@ -205,6 +223,8 @@ event_task.json
 - `commentBaselines.maintainer`
 - `commentBaselines.bot`
 - `commentBaselines.user`
+
+每个 category 下维护 `issueCommentCursor`、`reviewCommentCursor`、`reviewCursor`、`commitCommentCursor`。旧 runtime JSON 缺少 `commitCommentCursor` 时会按空 cursor 兼容。
 
 状态型 baseline 记录 CI、review、merge、draft、unresolved threads、`headSha` 等字段。主 Claude 删除 task 前必须推进对应 baseline。
 
@@ -248,6 +268,8 @@ gh pr checks <number> --repo <owner>/<repo>
 gh api repos/<owner>/<repo>/issues/<number>/comments
 gh api repos/<owner>/<repo>/pulls/<number>/comments
 gh api repos/<owner>/<repo>/pulls/<number>/reviews
+gh api repos/<owner>/<repo>/pulls/<number>/commits
+gh api repos/<owner>/<repo>/commits/<sha>/comments
 ```
 
 创建 PR：

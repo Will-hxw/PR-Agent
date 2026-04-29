@@ -81,6 +81,7 @@ function makeSnapshot(overrides = {}) {
     issueComments: [],
     reviewComments: [],
     reviews: [],
+    commitComments: [],
     reviewRequests: [],
     ...overrides,
   };
@@ -88,9 +89,11 @@ function makeSnapshot(overrides = {}) {
   snapshot.issueComments = [...snapshot.issueComments].sort(agent.compareActivityChronologically);
   snapshot.reviewComments = [...snapshot.reviewComments].sort(agent.compareActivityChronologically);
   snapshot.reviews = [...snapshot.reviews].sort(agent.compareActivityChronologically);
+  snapshot.commitComments = [...snapshot.commitComments].sort(agent.compareActivityChronologically);
   snapshot.issueCommentCursor = agent.buildCursor(snapshot.issueComments);
   snapshot.reviewCommentCursor = agent.buildCursor(snapshot.reviewComments);
   snapshot.reviewCursor = agent.buildCursor(snapshot.reviews);
+  snapshot.commitCommentCursor = agent.buildCursor(snapshot.commitComments);
   return snapshot;
 }
 
@@ -1684,6 +1687,318 @@ test("own contributor comments do not create comment tasks", async () => {
 });
 
 
+test("issue comment marker closes NEW_COMMENT task and advances user baseline", async () => {
+  const listener = createListener();
+  const firstSnapshot = makeSnapshot({
+    prKey: "demo/repo#90",
+    issueComments: [
+      makeActivity({
+        id: 600,
+        createdAt: "2026-04-24T00:01:00.000Z",
+        authorLogin: "external-user",
+        body: "please clarify",
+      }),
+    ],
+  });
+  await listener._scanSnapshot(firstSnapshot);
+  assert.equal(listener.taskManager.events.length, 1);
+  assert.equal(listener.taskManager.events[0].type, "NEW_COMMENT");
+
+  await listener._scanSnapshot(makeSnapshot({
+    prKey: firstSnapshot.prKey,
+    updatedAt: "2026-04-24T00:03:00.000Z",
+    issueComments: [
+      ...firstSnapshot.issueComments,
+      makeActivity({
+        id: 601,
+        createdAt: "2026-04-24T00:02:00.000Z",
+        authorLogin: "example-user",
+        body: "Handled.\n\n<!-- pr-agent:handled issue_comment 600 -->",
+      }),
+    ],
+  }));
+
+  assert.equal(listener.taskManager.events.length, 0);
+  const entry = listener.state.getOrInit(firstSnapshot.prKey);
+  assert.equal(entry.baseline.commentBaselines.user.issueCommentCursor.lastId, "600");
+  assert.ok(listener.actionLogger.lines.some((line) => line.includes("reason=comment_activities_handled replied=1")));
+});
+
+
+test("review marker closes MAINTAINER_COMMENT task and advances maintainer baseline", async () => {
+  const listener = createListener();
+  const review = makeActivity({
+    stream: "review",
+    id: 610,
+    createdAt: "2026-04-24T00:01:00.000Z",
+    authorLogin: "maintainer",
+    authorAssociation: "OWNER",
+    state: "COMMENTED",
+    body: "please adjust wording",
+  });
+  const firstSnapshot = makeSnapshot({
+    prKey: "demo/repo#91",
+    reviews: [review],
+  });
+  await listener._scanSnapshot(firstSnapshot);
+  assert.equal(listener.taskManager.events.length, 1);
+  assert.equal(listener.taskManager.events[0].type, "MAINTAINER_COMMENT");
+
+  await listener._scanSnapshot(makeSnapshot({
+    prKey: firstSnapshot.prKey,
+    updatedAt: "2026-04-24T00:03:00.000Z",
+    issueComments: [
+      makeActivity({
+        id: 611,
+        createdAt: "2026-04-24T00:02:00.000Z",
+        authorLogin: "example-user",
+        body: "Updated.\n\n<!-- pr-agent:handled review 610 -->",
+      }),
+    ],
+    reviews: [review],
+  }));
+
+  assert.equal(listener.taskManager.events.length, 0);
+  const entry = listener.state.getOrInit(firstSnapshot.prKey);
+  assert.equal(entry.baseline.commentBaselines.maintainer.reviewCursor.lastId, "610");
+});
+
+
+test("native review comment reply closes non-bot comment task", async () => {
+  const listener = createListener();
+  const reviewComment = makeActivity({
+    stream: "review_comment",
+    id: 620,
+    createdAt: "2026-04-24T00:01:00.000Z",
+    authorLogin: "external-user",
+    body: "inline question",
+  });
+  const firstSnapshot = makeSnapshot({
+    prKey: "demo/repo#92",
+    reviewComments: [reviewComment],
+  });
+  await listener._scanSnapshot(firstSnapshot);
+  assert.equal(listener.taskManager.events.length, 1);
+  assert.equal(listener.taskManager.events[0].type, "NEW_COMMENT");
+
+  await listener._scanSnapshot(makeSnapshot({
+    prKey: firstSnapshot.prKey,
+    updatedAt: "2026-04-24T00:03:00.000Z",
+    reviewComments: [
+      reviewComment,
+      makeActivity({
+        stream: "review_comment",
+        id: 621,
+        createdAt: "2026-04-24T00:02:00.000Z",
+        authorLogin: "example-user",
+        inReplyTo: "620",
+        body: "answered inline",
+      }),
+    ],
+  }));
+
+  assert.equal(listener.taskManager.events.length, 0);
+  const entry = listener.state.getOrInit(firstSnapshot.prKey);
+  assert.equal(entry.baseline.commentBaselines.user.reviewCommentCursor.lastId, "620");
+});
+
+
+test("review comment marker also closes comment task", async () => {
+  const listener = createListener();
+  const reviewComment = makeActivity({
+    stream: "review_comment",
+    id: 630,
+    createdAt: "2026-04-24T00:01:00.000Z",
+    authorLogin: "external-user",
+    body: "inline question",
+  });
+  const firstSnapshot = makeSnapshot({
+    prKey: "demo/repo#93",
+    reviewComments: [reviewComment],
+  });
+  await listener._scanSnapshot(firstSnapshot);
+  assert.equal(listener.taskManager.events.length, 1);
+
+  await listener._scanSnapshot(makeSnapshot({
+    prKey: firstSnapshot.prKey,
+    updatedAt: "2026-04-24T00:03:00.000Z",
+    issueComments: [
+      makeActivity({
+        id: 631,
+        createdAt: "2026-04-24T00:02:00.000Z",
+        authorLogin: "example-user",
+        body: "Handled.\n\n<!-- pr-agent:handled https://github.com/demo/repo/pull/1#discussion_r630 -->",
+      }),
+    ],
+    reviewComments: [reviewComment],
+  }));
+
+  assert.equal(listener.taskManager.events.length, 0);
+});
+
+
+test("commit comment marker closes comment task and advances commit cursor", async () => {
+  const listener = createListener();
+  const commitComment = makeActivity({
+    stream: "commit_comment",
+    id: 640,
+    createdAt: "2026-04-24T00:01:00.000Z",
+    authorLogin: "external-user",
+    body: "commit note",
+  });
+  const firstSnapshot = makeSnapshot({
+    prKey: "demo/repo#94",
+    commitComments: [commitComment],
+  });
+  await listener._scanSnapshot(firstSnapshot);
+  assert.equal(listener.taskManager.events.length, 1);
+  assert.equal(listener.taskManager.events[0].type, "NEW_COMMENT");
+
+  await listener._scanSnapshot(makeSnapshot({
+    prKey: firstSnapshot.prKey,
+    updatedAt: "2026-04-24T00:03:00.000Z",
+    issueComments: [
+      makeActivity({
+        id: 641,
+        createdAt: "2026-04-24T00:02:00.000Z",
+        authorLogin: "example-user",
+        body: "Fixed.\n\n<!-- pr-agent:handled commit_comment 640 -->",
+      }),
+    ],
+    commitComments: [commitComment],
+  }));
+
+  assert.equal(listener.taskManager.events.length, 0);
+  const entry = listener.state.getOrInit(firstSnapshot.prKey);
+  assert.equal(entry.baseline.commentBaselines.user.commitCommentCursor.lastId, "640");
+});
+
+
+test("plain contributor follow-up without marker does not close issue comment task", async () => {
+  const listener = createListener();
+  const firstSnapshot = makeSnapshot({
+    prKey: "demo/repo#95",
+    issueComments: [
+      makeActivity({
+        id: 650,
+        createdAt: "2026-04-24T00:01:00.000Z",
+        authorLogin: "external-user",
+        body: "question",
+      }),
+    ],
+  });
+  await listener._scanSnapshot(firstSnapshot);
+
+  await listener._scanSnapshot(makeSnapshot({
+    prKey: firstSnapshot.prKey,
+    updatedAt: "2026-04-24T00:03:00.000Z",
+    issueComments: [
+      ...firstSnapshot.issueComments,
+      makeActivity({
+        id: 651,
+        createdAt: "2026-04-24T00:02:00.000Z",
+        authorLogin: "example-user",
+        body: "plain follow-up",
+      }),
+    ],
+  }));
+
+  assert.equal(listener.taskManager.events.length, 1);
+  assert.equal(listener.taskManager.events[0].type, "NEW_COMMENT");
+  assert.deepStrictEqual(listener.taskManager.events[0].details.replyResolution.unresolvedIds, ["650"]);
+});
+
+
+test("marker must match current task activity stream and id", async () => {
+  const listener = createListener();
+  const firstSnapshot = makeSnapshot({
+    prKey: "demo/repo#96",
+    issueComments: [
+      makeActivity({
+        id: 660,
+        createdAt: "2026-04-24T00:01:00.000Z",
+        authorLogin: "external-user",
+        body: "question",
+      }),
+    ],
+  });
+  await listener._scanSnapshot(firstSnapshot);
+
+  await listener._scanSnapshot(makeSnapshot({
+    prKey: firstSnapshot.prKey,
+    updatedAt: "2026-04-24T00:03:00.000Z",
+    issueComments: [
+      ...firstSnapshot.issueComments,
+      makeActivity({
+        id: 661,
+        createdAt: "2026-04-24T00:02:00.000Z",
+        authorLogin: "example-user",
+        body: "Wrong marker.\n\n<!-- pr-agent:handled review_comment 660 -->",
+      }),
+    ],
+  }));
+
+  assert.equal(listener.taskManager.events.length, 1);
+  assert.deepStrictEqual(listener.taskManager.events[0].details.replyResolution.unresolvedRefs, [
+    { stream: "issue_comment", id: "660" },
+  ]);
+});
+
+
+test("partial markers keep multi-activity comment task open", async () => {
+  const listener = createListener();
+  const firstSnapshot = makeSnapshot({
+    prKey: "demo/repo#97",
+    issueComments: [
+      makeActivity({
+        id: 670,
+        createdAt: "2026-04-24T00:01:00.000Z",
+        authorLogin: "external-user",
+        body: "first",
+      }),
+      makeActivity({
+        id: 671,
+        createdAt: "2026-04-24T00:02:00.000Z",
+        authorLogin: "second-user",
+        body: "second",
+      }),
+    ],
+  });
+  await listener._scanSnapshot(firstSnapshot);
+
+  await listener._scanSnapshot(makeSnapshot({
+    prKey: firstSnapshot.prKey,
+    updatedAt: "2026-04-24T00:04:00.000Z",
+    issueComments: [
+      ...firstSnapshot.issueComments,
+      makeActivity({
+        id: 672,
+        createdAt: "2026-04-24T00:03:00.000Z",
+        authorLogin: "example-user",
+        body: "Handled first only.\n\n<!-- pr-agent:handled issue_comment 670 -->",
+      }),
+    ],
+  }));
+
+  assert.equal(listener.taskManager.events.length, 1);
+  assert.deepStrictEqual(listener.taskManager.events[0].details.replyResolution.repliedIds, ["670"]);
+  assert.deepStrictEqual(listener.taskManager.events[0].details.replyResolution.unresolvedIds, ["671"]);
+});
+
+
+test("comment cursor normalization backfills missing commit cursor", () => {
+  const normalized = agent.normalizeCommentCursorSet({
+    issueCommentCursor: {
+      count: 1,
+      lastId: "680",
+    },
+  });
+
+  assert.equal(normalized.issueCommentCursor.lastId, "680");
+  assert.deepStrictEqual(normalized.commitCommentCursor, agent.emptyCursor());
+});
+
+
 test("human login containing bot is not classified as bot when authorType is User", () => {
   assert.equal(agent.classifyActivityCategory(makeActivity({
     id: 503,
@@ -1729,6 +2044,7 @@ test("collectNewActivities detects replacement comments when count stays the sam
     issueComments: 1,
     reviewComments: 0,
     reviews: 0,
+    commitComments: 0,
   });
 });
 
@@ -1767,6 +2083,7 @@ test("collectNewActivities detects edited issue comments with unchanged id", () 
     issueComments: 1,
     reviewComments: 0,
     reviews: 0,
+    commitComments: 0,
   });
 });
 
@@ -1807,6 +2124,7 @@ test("collectNewActivities detects edited review comments with unchanged id", ()
     issueComments: 0,
     reviewComments: 1,
     reviews: 0,
+    commitComments: 0,
   });
 });
 

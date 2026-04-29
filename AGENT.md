@@ -117,6 +117,17 @@ task 类型只有：
 3. 从 `event_task.json` 删除该 task。
 4. 重新读取队列，继续处理下一个 task。
 
+评论类 task 的 GitHub 回复必须能被刷新器识别。回复 `MAINTAINER_COMMENT`、`BOT_COMMENT`、`NEW_COMMENT` 或 review feedback 时，在回复末尾附加对应 marker：
+
+```md
+<!-- pr-agent:handled issue_comment 4328180705 -->
+<!-- pr-agent:handled review_comment 3112722951 -->
+<!-- pr-agent:handled review 4195854742 -->
+<!-- pr-agent:handled commit_comment 123456789 -->
+```
+
+普通 PR Conversation、review 总评和 commit comment 没有可靠父子回复字段，没有 marker 不会自动闭环。inline review comment 仍优先点原 thread 的 Reply；marker 作为统一兜底。
+
 ## 7. Scout
 
 候选项目必须满足：
@@ -282,6 +293,7 @@ PR 提交后必须持续关注：
 回复 review 时：
 
 - inline review comment 回复原 review thread；
+- 回复末尾加 `pr-agent:handled` marker，确保下一轮 JSON 刷新能自动识别闭环；
 - 英文项目用英文回复；
 - 简短具体，不写 AI 式长篇解释；
 - 不采纳建议时给出具体原因。

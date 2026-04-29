@@ -84,6 +84,7 @@ const COMMENT_CATEGORY_BY_TASK_TYPE = Object.freeze({
   BOT_COMMENT: "bot",
   NEW_COMMENT: "user",
 });
+const COMMENT_STREAMS = new Set(["issue_comment", "review_comment", "review", "commit_comment"]);
 const MAINTAINER_ASSOCIATIONS = new Set(["COLLABORATOR", "MEMBER", "OWNER"]);
 const FAILURE_CONCLUSIONS = new Set([
   "FAILURE",
@@ -128,6 +129,7 @@ function buildDefaultPrompt() {
     "[Agent] You are the single Claude open-source PR Agent. Your goal is to process existing PR tasks, find new contribution opportunities, submit and follow up on GitHub PRs, and keep every contribution small, accurate, and maintainable.",
     "[Highest priority] On startup, read event_task.json and event_state.json first. If event_task.json contains any task, regardless of whether its status is pending or blocked, process the task queue before scouting for new PRs.",
     "[Task closure] For every task, follow doc/task-processing.md to investigate, act, reply, or record the result. After handling it, follow doc/event-task-state-maintenance.md to advance the matching event_state.json baseline and delete the corresponding task from event_task.json. Deleting the task alone is not completion.",
+    "[Comment replies] When replying to MAINTAINER_COMMENT, BOT_COMMENT, NEW_COMMENT, or review feedback, append a hidden pr-agent:handled marker for every handled GitHub comment/review. Inline review comments should be answered in the original thread first; issue comments, review summaries, and commit comments require the marker so JSON refresh can detect closure.",
     "[Workflow] STARTUP -> TASK_QUEUE -> Scout -> Triage -> Lock Target -> Implement -> Validate -> Submit PR -> Record -> TASK_QUEUE. Return to TASK_QUEUE after every stage.",
     "[PR restriction] Do not create PRs for any MCP-related project, including MCP Server/Client/SDK/Protocol implementations, repositories containing MCP keywords, or projects using @modelcontextprotocol/* or @anthropic-ai/mcp-sdk dependencies.",
     "Reply in Chinese except for proper nouns, code, commands, and technical identifiers.",
@@ -578,10 +580,6 @@ function cloneJson(value) {
   return value == null ? value : JSON.parse(JSON.stringify(value));
 }
 
-function normalizeActivityId(value) {
-  return value == null ? null : String(value);
-}
-
 function buildActivityFingerprint(activity) {
   return createHash("sha256").update(JSON.stringify({
     stream: activity?.stream || null,
@@ -712,6 +710,7 @@ function emptyCommentCursorSet() {
     issueCommentCursor: emptyCursor(),
     reviewCommentCursor: emptyCursor(),
     reviewCursor: emptyCursor(),
+    commitCommentCursor: emptyCursor(),
   };
 }
 
@@ -723,6 +722,7 @@ function normalizeCommentCursorSet(raw) {
     issueCommentCursor: normalizeCursor(raw.issueCommentCursor),
     reviewCommentCursor: normalizeCursor(raw.reviewCommentCursor),
     reviewCursor: normalizeCursor(raw.reviewCursor),
+    commitCommentCursor: normalizeCursor(raw.commitCommentCursor),
   };
 }
 
@@ -751,11 +751,12 @@ function cloneCommentBaselines(raw) {
   return normalizeCommentBaselines(cloneJson(raw));
 }
 
-function buildCommentCursorSet(issueComments, reviewComments, reviews) {
+function buildCommentCursorSet(issueComments, reviewComments, reviews, commitComments = []) {
   return {
     issueCommentCursor: buildCursor(issueComments),
     reviewCommentCursor: buildCursor(reviewComments),
     reviewCursor: buildCursor(reviews),
+    commitCommentCursor: buildCursor(commitComments),
   };
 }
 
@@ -805,10 +806,11 @@ function cloneBaseline(baseline) {
 function buildCommentBaselinesFromSnapshot(snapshot) {
   return Object.fromEntries(
     COMMENT_CATEGORIES.map((category) => {
-      const issueComments = snapshot.issueComments.filter((activity) => classifyActivityCategory(activity) === category);
-      const reviewComments = snapshot.reviewComments.filter((activity) => classifyActivityCategory(activity) === category);
-      const reviews = snapshot.reviews.filter((activity) => classifyActivityCategory(activity) === category);
-      return [category, buildCommentCursorSet(issueComments, reviewComments, reviews)];
+      const issueComments = (snapshot.issueComments || []).filter((activity) => classifyActivityCategory(activity) === category);
+      const reviewComments = (snapshot.reviewComments || []).filter((activity) => classifyActivityCategory(activity) === category);
+      const reviews = (snapshot.reviews || []).filter((activity) => classifyActivityCategory(activity) === category);
+      const commitComments = (snapshot.commitComments || []).filter((activity) => classifyActivityCategory(activity) === category);
+      return [category, buildCommentCursorSet(issueComments, reviewComments, reviews, commitComments)];
     }),
   );
 }
@@ -852,7 +854,12 @@ function normalizeStateEntry(prKey, raw) {
 
 function buildBoundaryFromSnapshot(snapshot) {
   return {
-    ...buildCommentCursorSet(snapshot.issueComments, snapshot.reviewComments, snapshot.reviews),
+    ...buildCommentCursorSet(
+      snapshot.issueComments || [],
+      snapshot.reviewComments || [],
+      snapshot.reviews || [],
+      snapshot.commitComments || [],
+    ),
     snapshotUpdatedAt: snapshot.updatedAt || null,
   };
 }
@@ -860,9 +867,10 @@ function buildBoundaryFromSnapshot(snapshot) {
 function buildBoundaryFromCategorySnapshot(snapshot, category) {
   return {
     ...buildCommentCursorSet(
-      snapshot.issueComments.filter((activity) => classifyActivityCategory(activity) === category),
-      snapshot.reviewComments.filter((activity) => classifyActivityCategory(activity) === category),
-      snapshot.reviews.filter((activity) => classifyActivityCategory(activity) === category),
+      (snapshot.issueComments || []).filter((activity) => classifyActivityCategory(activity) === category),
+      (snapshot.reviewComments || []).filter((activity) => classifyActivityCategory(activity) === category),
+      (snapshot.reviews || []).filter((activity) => classifyActivityCategory(activity) === category),
+      (snapshot.commitComments || []).filter((activity) => classifyActivityCategory(activity) === category),
     ),
     snapshotUpdatedAt: snapshot.updatedAt || null,
   };
@@ -885,6 +893,7 @@ function normalizeBoundary(raw) {
       issueCommentCursor: emptyCursor(),
       reviewCommentCursor: emptyCursor(),
       reviewCursor: emptyCursor(),
+      commitCommentCursor: emptyCursor(),
       snapshotUpdatedAt: null,
     };
   }
@@ -892,6 +901,7 @@ function normalizeBoundary(raw) {
     issueCommentCursor: normalizeCursor(raw.issueCommentCursor),
     reviewCommentCursor: normalizeCursor(raw.reviewCommentCursor),
     reviewCursor: normalizeCursor(raw.reviewCursor),
+    commitCommentCursor: normalizeCursor(raw.commitCommentCursor),
     snapshotUpdatedAt: normalizeBoundaryTimestamp(raw.snapshotUpdatedAt),
   };
 }
@@ -1026,52 +1036,275 @@ function commentCategoryForTaskType(type) {
   return COMMENT_CATEGORY_BY_TASK_TYPE[type] || null;
 }
 
-function uniqueNormalizedIds(values) {
-  const ids = [];
-  const seen = new Set();
-  for (const value of values || []) {
-    const id = normalizeActivityId(value);
-    if (!id || seen.has(id)) {
-      continue;
-    }
-    seen.add(id);
-    ids.push(id);
+function commentRefKey(ref) {
+  if (!ref || !COMMENT_STREAMS.has(ref.stream) || ref.id == null) {
+    return null;
   }
-  return ids;
+  return `${ref.stream}:${String(ref.id)}`;
 }
 
-function extractBotReviewCommentIds(activities) {
-  return uniqueNormalizedIds(
-    (activities || [])
-      .filter((activity) => activity?.stream === "review_comment" && !activity.inReplyTo && isBotActor(activity))
-      .map((activity) => activity.id),
-  );
-}
-
-function extractAwaitingReplyReviewCommentIds(details) {
-  if (Array.isArray(details?.awaitingReplyReviewCommentIds)) {
-    return uniqueNormalizedIds(details.awaitingReplyReviewCommentIds);
+function commentRefFromActivity(activity) {
+  if (!activity || !COMMENT_STREAMS.has(activity.stream) || activity.id == null) {
+    return null;
   }
-  return extractBotReviewCommentIds(details?.activities || []);
-}
-
-function buildReviewCommentReplyResolution(snapshot, awaitingIds) {
-  const awaitedIds = uniqueNormalizedIds(awaitingIds);
-  const awaited = new Set(awaitedIds);
-  const replied = new Set();
-  for (const comment of snapshot?.reviewComments || []) {
-    const parentId = normalizeActivityId(comment?.inReplyTo);
-    if (parentId && awaited.has(parentId) && !isBotActor(comment)) {
-      replied.add(parentId);
-    }
-  }
-  const repliedIds = awaitedIds.filter((id) => replied.has(id));
-  const unresolvedIds = awaitedIds.filter((id) => !replied.has(id));
   return {
-    awaitedIds,
-    repliedIds,
-    unresolvedIds,
+    stream: activity.stream,
+    id: String(activity.id),
   };
+}
+
+function parseCommentRefFromUrl(value) {
+  const text = String(value || "").trim();
+  if (!text) {
+    return null;
+  }
+  let fragment = "";
+  try {
+    const url = new URL(text);
+    fragment = url.hash ? url.hash.slice(1) : "";
+  } catch {
+    const hashIndex = text.indexOf("#");
+    fragment = hashIndex >= 0 ? text.slice(hashIndex + 1) : text;
+  }
+  const normalized = fragment.trim();
+  const patterns = [
+    { stream: "issue_comment", regex: /^issuecomment-(\d+)$/i },
+    { stream: "review_comment", regex: /^discussion_r(\d+)$/i },
+    { stream: "review_comment", regex: /^pullrequestreviewcomment-(\d+)$/i },
+    { stream: "review", regex: /^pullrequestreview-(\d+)$/i },
+    { stream: "commit_comment", regex: /^commitcomment-(\d+)$/i },
+  ];
+  for (const pattern of patterns) {
+    const match = normalized.match(pattern.regex);
+    if (match) {
+      return {
+        stream: pattern.stream,
+        id: match[1],
+      };
+    }
+  }
+  return null;
+}
+
+function parseCommentRefFromMarkerTarget(target) {
+  const value = String(target || "").trim();
+  if (!value) {
+    return null;
+  }
+  const urlRef = parseCommentRefFromUrl(value);
+  if (urlRef) {
+    return urlRef;
+  }
+  const match = value.match(/^(issue_comment|review_comment|review|commit_comment)\s+([^\s<>]+)$/i);
+  if (!match) {
+    return null;
+  }
+  return {
+    stream: match[1].toLowerCase(),
+    id: String(match[2]),
+  };
+}
+
+function parseHandledCommentMarkers(body) {
+  const markers = [];
+  const text = String(body || "");
+  const regex = /<!--\s*pr-agent:handled\s+([\s\S]*?)\s*-->/gi;
+  let match = regex.exec(text);
+  while (match) {
+    const ref = parseCommentRefFromMarkerTarget(match[1]);
+    if (ref && commentRefKey(ref)) {
+      markers.push(ref);
+    }
+    match = regex.exec(text);
+  }
+  return markers;
+}
+
+function allCommentActivities(snapshot) {
+  return [
+    ...(snapshot?.issueComments || []),
+    ...(snapshot?.reviewComments || []),
+    ...(snapshot?.reviews || []),
+    ...(snapshot?.commitComments || []),
+  ].sort(compareActivityChronologically);
+}
+
+function addResolutionEvidence(map, ref, evidence) {
+  const key = commentRefKey(ref);
+  if (!key || map.has(key)) {
+    return;
+  }
+  map.set(key, evidence);
+}
+
+function collectCommentResolutionEvidence(snapshot) {
+  const explicit = new Map();
+  const nativeContributorReviewReplies = new Map();
+  const nativeNonBotReviewReplies = new Map();
+  for (const activity of allCommentActivities(snapshot)) {
+    if (isContributorActivity(activity)) {
+      for (const ref of parseHandledCommentMarkers(activity.body)) {
+        addResolutionEvidence(explicit, ref, {
+          mode: "explicit-marker",
+          resolverStream: activity.stream,
+          resolverId: String(activity.id),
+          resolverLogin: activity.authorLogin || null,
+        });
+      }
+    }
+    if (activity?.stream === "review_comment" && activity.inReplyTo) {
+      const parentRef = {
+        stream: "review_comment",
+        id: String(activity.inReplyTo),
+      };
+      if (isContributorActivity(activity)) {
+        addResolutionEvidence(nativeContributorReviewReplies, parentRef, {
+          mode: "native-review-reply",
+          resolverStream: activity.stream,
+          resolverId: String(activity.id),
+          resolverLogin: activity.authorLogin || null,
+        });
+      }
+      if (!isBotActor(activity)) {
+        addResolutionEvidence(nativeNonBotReviewReplies, parentRef, {
+          mode: "native-review-reply",
+          resolverStream: activity.stream,
+          resolverId: String(activity.id),
+          resolverLogin: activity.authorLogin || null,
+        });
+      }
+    }
+  }
+  return {
+    explicit,
+    nativeContributorReviewReplies,
+    nativeNonBotReviewReplies,
+  };
+}
+
+function uniqueActivitySummaries(...groups) {
+  const byKey = new Map();
+  for (const group of groups) {
+    for (const activity of group || []) {
+      const ref = commentRefFromActivity(activity);
+      const key = commentRefKey(ref);
+      if (!key || byKey.has(key)) {
+        continue;
+      }
+      byKey.set(key, activity);
+    }
+  }
+  return [...byKey.values()].sort(compareActivityChronologically);
+}
+
+function activityRequiresResolutionForTask(type, activity) {
+  if (type === "BOT_COMMENT" && activity?.stream === "review_comment" && activity.inReplyTo && isBotActor(activity)) {
+    return false;
+  }
+  return true;
+}
+
+function buildCommentReplyResolution(snapshot, activities, taskType) {
+  const evidence = collectCommentResolutionEvidence(snapshot);
+  const awaitedActivities = uniqueActivitySummaries(activities)
+    .filter((activity) => activityRequiresResolutionForTask(taskType, activity));
+  const awaitedRefs = awaitedActivities
+    .map(commentRefFromActivity)
+    .filter(Boolean);
+  const repliedRefs = [];
+  const unresolvedRefs = [];
+  const evidenceByRef = {};
+  const modes = new Set();
+
+  for (const ref of awaitedRefs) {
+    const key = commentRefKey(ref);
+    let matched = evidence.explicit.get(key) || null;
+    if (!matched && ref.stream === "review_comment") {
+      matched = evidence.nativeContributorReviewReplies.get(key) || null;
+    }
+    if (!matched && taskType === "BOT_COMMENT" && ref.stream === "review_comment") {
+      matched = evidence.nativeNonBotReviewReplies.get(key) || null;
+    }
+
+    if (matched) {
+      repliedRefs.push(ref);
+      evidenceByRef[key] = matched;
+      modes.add(matched.mode);
+    } else {
+      unresolvedRefs.push(ref);
+    }
+  }
+
+  return {
+    awaitedIds: awaitedRefs.map((ref) => ref.id),
+    repliedIds: repliedRefs.map((ref) => ref.id),
+    unresolvedIds: unresolvedRefs.map((ref) => ref.id),
+    awaitedRefs,
+    repliedRefs,
+    unresolvedRefs,
+    resolutionMode: modes.size === 0 ? "none" : modes.size === 1 ? [...modes][0] : "mixed",
+    evidenceByRef,
+  };
+}
+
+function isReplyResolutionComplete(replyResolution) {
+  return Array.isArray(replyResolution?.awaitedRefs)
+    && replyResolution.awaitedRefs.length > 0
+    && Array.isArray(replyResolution.unresolvedRefs)
+    && replyResolution.unresolvedRefs.length === 0;
+}
+
+function commentResolutionLogReason(type) {
+  return type === "BOT_COMMENT" ? "bot_review_comments_replied" : "comment_activities_handled";
+}
+
+function buildCommentTaskExtraDetails(type, snapshot, activities) {
+  const activitySummaries = activities.items.map(createActivitySummary);
+  const latestActivity = createActivitySummary(activities.items[activities.items.length - 1]);
+  const extraDetails = {
+    activities: activitySummaries,
+    activityCount: activities.items.length,
+    streamCounts: activities.counts,
+    latestActivity,
+  };
+  const replyResolution = buildCommentReplyResolution(snapshot, activitySummaries, type);
+  extraDetails.replyResolution = replyResolution;
+  if (type === "BOT_COMMENT") {
+    extraDetails.awaitingReplyReviewCommentIds = replyResolution.awaitedRefs
+      .filter((ref) => ref.stream === "review_comment")
+      .map((ref) => ref.id);
+  }
+  return extraDetails;
+}
+
+function refreshTaskReplyResolution(task, snapshot, previousDetails = null) {
+  if (!COMMENT_TASK_TYPES.has(task.type)) {
+    return null;
+  }
+  const activities = uniqueActivitySummaries(
+    previousDetails?.activities || [],
+    task.details?.activities || [],
+  );
+  const replyResolution = buildCommentReplyResolution(snapshot, activities, task.type);
+  if (task.type === "BOT_COMMENT" && !isReplyResolutionComplete(replyResolution) && previousDetails?.activities) {
+    const legacyBotReviewComments = uniqueActivitySummaries(previousDetails.activities)
+      .filter((activity) => activity?.stream === "review_comment" && !activity.inReplyTo && isBotActor(activity));
+    const legacyResolution = buildCommentReplyResolution(snapshot, legacyBotReviewComments, task.type);
+    if (isReplyResolutionComplete(legacyResolution)) {
+      task.details.replyResolution = legacyResolution;
+      task.details.awaitingReplyReviewCommentIds = legacyResolution.awaitedRefs
+        .filter((ref) => ref.stream === "review_comment")
+        .map((ref) => ref.id);
+      return legacyResolution;
+    }
+  }
+  task.details.replyResolution = replyResolution;
+  if (task.type === "BOT_COMMENT") {
+    task.details.awaitingReplyReviewCommentIds = replyResolution.awaitedRefs
+      .filter((ref) => ref.stream === "review_comment")
+      .map((ref) => ref.id);
+  }
+  return replyResolution;
 }
 
 function compareActivityChronologically(left, right) {
@@ -1096,9 +1329,10 @@ function buildSnapshotSummary(snapshot) {
     `Mergeable: ${snapshot.mergeable || "UNKNOWN"}`,
     `Draft: ${snapshot.isDraft ? "yes" : "no"}`,
     `Unresolved review threads: ${snapshot.unresolvedReviewThreadCount}`,
-    `Issue comments: ${snapshot.issueCommentCursor.count}`,
-    `Review comments: ${snapshot.reviewCommentCursor.count}`,
-    `Reviews: ${snapshot.reviewCursor.count}`,
+    `Issue comments: ${snapshot.issueCommentCursor?.count || 0}`,
+    `Review comments: ${snapshot.reviewCommentCursor?.count || 0}`,
+    `Reviews: ${snapshot.reviewCursor?.count || 0}`,
+    `Commit comments: ${snapshot.commitCommentCursor?.count || 0}`,
   ].join("\n");
 }
 
@@ -1209,24 +1443,33 @@ function collectItemsAfterCursor(items, rawCursor) {
 }
 
 function collectNewActivities(snapshot, baseline, category = null) {
+  const snapshotIssueComments = snapshot.issueComments || [];
+  const snapshotReviewComments = snapshot.reviewComments || [];
+  const snapshotReviews = snapshot.reviews || [];
+  const snapshotCommitComments = snapshot.commitComments || [];
   const issueComments = category
-    ? snapshot.issueComments.filter((activity) => classifyActivityCategory(activity) === category)
-    : snapshot.issueComments;
+    ? snapshotIssueComments.filter((activity) => classifyActivityCategory(activity) === category)
+    : snapshotIssueComments;
   const reviewComments = category
-    ? snapshot.reviewComments.filter((activity) => classifyActivityCategory(activity) === category)
-    : snapshot.reviewComments;
+    ? snapshotReviewComments.filter((activity) => classifyActivityCategory(activity) === category)
+    : snapshotReviewComments;
   const reviews = category
-    ? snapshot.reviews.filter((activity) => classifyActivityCategory(activity) === category)
-    : snapshot.reviews;
+    ? snapshotReviews.filter((activity) => classifyActivityCategory(activity) === category)
+    : snapshotReviews;
+  const commitComments = category
+    ? snapshotCommitComments.filter((activity) => classifyActivityCategory(activity) === category)
+    : snapshotCommitComments;
 
   const cursorSet = normalizeCommentCursorSet(baseline);
   const newIssueComments = collectItemsAfterCursor(issueComments, cursorSet.issueCommentCursor);
   const newReviewComments = collectItemsAfterCursor(reviewComments, cursorSet.reviewCommentCursor);
   const newReviews = collectItemsAfterCursor(reviews, cursorSet.reviewCursor);
+  const newCommitComments = collectItemsAfterCursor(commitComments, cursorSet.commitCommentCursor);
   const items = [
     ...newIssueComments,
     ...newReviewComments,
     ...newReviews,
+    ...newCommitComments,
   ].sort(compareActivityChronologically);
   return {
     category,
@@ -1235,8 +1478,9 @@ function collectNewActivities(snapshot, baseline, category = null) {
       issueComments: newIssueComments.length,
       reviewComments: newReviewComments.length,
       reviews: newReviews.length,
+      commitComments: newCommitComments.length,
     },
-    cursors: buildCommentCursorSet(issueComments, reviewComments, reviews),
+    cursors: buildCommentCursorSet(issueComments, reviewComments, reviews, commitComments),
   };
 }
 
@@ -1966,6 +2210,21 @@ function normalizeReview(raw) {
   };
 }
 
+function normalizeCommitComment(raw) {
+  return {
+    stream: "commit_comment",
+    id: raw.id != null ? String(raw.id) : raw.node_id || raw.url || randomUUID(),
+    createdAt: raw.created_at || raw.createdAt || null,
+    updatedAt: raw.updated_at || raw.updatedAt || raw.created_at || raw.createdAt || null,
+    authorAssociation: raw.author_association || raw.authorAssociation || "NONE",
+    authorLogin: raw.user?.login || null,
+    authorType: raw.user?.type || null,
+    state: null,
+    body: raw.body || "",
+    url: raw.html_url || raw.url || null,
+  };
+}
+
 function statusContextLabel(item) {
   if (item.context) {
     return item.context;
@@ -2100,6 +2359,23 @@ async function fetchReviewThreads(owner, repo, prNumber, options = {}) {
   return { unresolvedCount };
 }
 
+async function fetchPrCommitComments(owner, repo, prNumber, options = {}) {
+  const commits = await fetchPaginatedArray(`repos/${owner}/${repo}/pulls/${prNumber}/commits`, options);
+  const commentsById = new Map();
+  for (const commit of commits) {
+    const sha = commit?.sha;
+    if (!sha) {
+      continue;
+    }
+    const comments = await fetchPaginatedArray(`repos/${owner}/${repo}/commits/${sha}/comments`, options);
+    for (const comment of comments) {
+      const normalized = normalizeCommitComment(comment);
+      commentsById.set(`${normalized.stream}:${normalized.id}`, normalized);
+    }
+  }
+  return [...commentsById.values()].sort(compareActivityChronologically);
+}
+
 async function fetchPrSnapshot(prKey, options = {}) {
   const { owner, repo, prNumber } = parsePrKey(prKey);
   const prView = await ghPrViewJson(owner, repo, prNumber, [
@@ -2133,6 +2409,7 @@ async function fetchPrSnapshot(prKey, options = {}) {
   const issueCommentsRaw = await fetchPaginatedArray(`repos/${owner}/${repo}/issues/${prNumber}/comments`, requestOptions);
   const reviewCommentsRaw = await fetchPaginatedArray(`repos/${owner}/${repo}/pulls/${prNumber}/comments`, requestOptions);
   const reviewsRaw = await fetchPaginatedArray(`repos/${owner}/${repo}/pulls/${prNumber}/reviews`, requestOptions);
+  const commitComments = await fetchPrCommitComments(owner, repo, prNumber, requestOptions);
   const reviewThreads = await fetchReviewThreads(owner, repo, prNumber, requestOptions);
 
   const issueComments = issueCommentsRaw.map(normalizeIssueComment).sort(compareActivityChronologically);
@@ -2167,10 +2444,12 @@ async function fetchPrSnapshot(prKey, options = {}) {
     issueComments,
     reviewComments,
     reviews,
+    commitComments,
     reviewers: prView.reviewRequests || [],
     issueCommentCursor: buildCursor(issueComments),
     reviewCommentCursor: buildCursor(reviewComments),
     reviewCursor: buildCursor(reviews),
+    commitCommentCursor: buildCursor(commitComments),
   };
 }
 
@@ -2864,19 +3143,7 @@ class EventListener {
         continue;
       }
       const type = COMMENT_TASK_TYPE_BY_CATEGORY[category];
-      const activitySummaries = activities.items.map(createActivitySummary);
-      const latestActivity = createActivitySummary(activities.items[activities.items.length - 1]);
-      const extraDetails = {
-        activities: activitySummaries,
-        activityCount: activities.items.length,
-        streamCounts: activities.counts,
-        latestActivity,
-      };
-      if (type === "BOT_COMMENT") {
-        const awaitingReplyReviewCommentIds = extractBotReviewCommentIds(activities.items);
-        extraDetails.awaitingReplyReviewCommentIds = awaitingReplyReviewCommentIds;
-        extraDetails.replyResolution = buildReviewCommentReplyResolution(snapshot, awaitingReplyReviewCommentIds);
-      }
+      const extraDetails = buildCommentTaskExtraDetails(type, snapshot, activities);
       candidateTasks.set(type, {
         type,
         severity: TASK_EVENT_SEVERITY[type],
@@ -2941,20 +3208,13 @@ class EventListener {
         primary.details.taskResult = cloneJson(previousTaskResult);
       }
       primary.boundary = normalizeBoundary(candidate.boundary);
-      if (primary.type === "BOT_COMMENT") {
-        const awaitingReplyReviewCommentIds = extractAwaitingReplyReviewCommentIds(primary.details);
-        const fallbackAwaitingIds = extractAwaitingReplyReviewCommentIds(previousDetails);
-        const replyResolution = buildReviewCommentReplyResolution(
-          snapshot,
-          awaitingReplyReviewCommentIds.length > 0 ? awaitingReplyReviewCommentIds : fallbackAwaitingIds,
-        );
-        primary.details.awaitingReplyReviewCommentIds = replyResolution.awaitedIds;
-        primary.details.replyResolution = replyResolution;
-        if (replyResolution.awaitedIds.length > 0 && replyResolution.unresolvedIds.length === 0) {
+      if (COMMENT_TASK_TYPES.has(primary.type)) {
+        const replyResolution = refreshTaskReplyResolution(primary, snapshot, previousDetails);
+        if (isReplyResolutionComplete(replyResolution)) {
           this.state.applyTaskSuccess(primary, snapshot);
           this.taskManager.remove(primary.id);
           this.actionLogger.writeLine(
-            `[${nowStamp()}] event_reconciled_resolved pr=${snapshot.prKey} type=${primary.type} task=${primary.id} reason=bot_review_comments_replied replied=${replyResolution.repliedIds.length}`,
+            `[${nowStamp()}] event_reconciled_resolved pr=${snapshot.prKey} type=${primary.type} task=${primary.id} reason=${commentResolutionLogReason(primary.type)} replied=${replyResolution.repliedIds.length}`,
           );
           candidateTasks.delete(type);
           continue;
@@ -2997,19 +3257,17 @@ class EventListener {
     }
 
     for (const event of candidateTasks.values()) {
-      if (event.type === "BOT_COMMENT") {
-        const replyResolution = buildReviewCommentReplyResolution(
-          snapshot,
-          extractAwaitingReplyReviewCommentIds(event.details),
-        );
-        if (replyResolution.awaitedIds.length > 0 && replyResolution.unresolvedIds.length === 0) {
+      if (COMMENT_TASK_TYPES.has(event.type)) {
+        const replyResolution = event.details?.replyResolution
+          || buildCommentReplyResolution(snapshot, event.details?.activities || [], event.type);
+        if (isReplyResolutionComplete(replyResolution)) {
           this.state.applyTaskSuccess({
             prKey: snapshot.prKey,
             type: event.type,
             boundary: event.boundary,
           }, snapshot);
           this.actionLogger.writeLine(
-            `[${nowStamp()}] event_reconciled_resolved pr=${snapshot.prKey} type=${event.type} task=none reason=bot_review_comments_replied replied=${replyResolution.repliedIds.length}`,
+            `[${nowStamp()}] event_reconciled_resolved pr=${snapshot.prKey} type=${event.type} task=none reason=${commentResolutionLogReason(event.type)} replied=${replyResolution.repliedIds.length}`,
           );
           continue;
         }
@@ -3438,6 +3696,7 @@ if (require.main === module) {
     buildDefaultPrompt,
     buildGhCommandEnv,
     buildGhGraphQLArgs,
+    buildCommentReplyResolution,
     classifyBlockedTaskReason,
     classifyStateBackedActionability,
     classifyActivityCategory,
@@ -3462,7 +3721,9 @@ if (require.main === module) {
     normalizeBoundary,
     normalizeBoundaryTimestamp,
     normalizeTaskRecord,
+    normalizeCommitComment,
     normalizeReviewComment,
+    parseHandledCommentMarkers,
     normalizeCommentBaselines,
     normalizeCommentCursorSet,
     parseOwnerRepoFromRepositoryUrl,

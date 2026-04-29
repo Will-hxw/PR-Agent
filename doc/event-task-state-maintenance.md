@@ -55,8 +55,20 @@
 - `boundary.issueCommentCursor`
 - `boundary.reviewCommentCursor`
 - `boundary.reviewCursor`
+- `boundary.commitCommentCursor`
 
 复制到对应 category。不要推进其他 category。
+
+旧 runtime JSON 可能没有 `commitCommentCursor`。读取时按空 cursor 兼容，下一次保存会补齐该字段。
+
+扫描器会为评论 task 写入 `details.replyResolution`：
+
+- `awaitedRefs` / `awaitedIds`：当前 task 需要处理的评论 activity。
+- `repliedRefs` / `repliedIds`：已被当前 contributor 回复证据覆盖的 activity。
+- `unresolvedRefs` / `unresolvedIds`：仍未闭环的 activity。
+- `resolutionMode`：`native-review-reply`、`explicit-marker`、`mixed` 或 `none`。
+
+当一个评论 task 的所有 activity 都被识别为已处理时，下一轮刷新会自动调用同一套 baseline 推进规则并删除该 task。自动闭环不改变 baseline 语义；仍然只推进该 task 类型对应的 category。
 
 同时更新：
 

@@ -19,10 +19,48 @@
 2. 用 `gh pr view`、`gh pr checks`、issue comments、review comments、reviews 等命令读取最新 PR 状态。
 3. 对照 task 类型判断该做什么行动。
 4. 如果需要代码修改，在 `candidates/<owner_repo>/` 中完成修改、提交、push，并保留验证证据。
-5. 如果需要回复评论或 review thread，必须回复；不要把评论 task 当成“通知”忽略。
+5. 如果需要回复评论或 review thread，必须回复；不要把评论 task 当成“通知”忽略。评论回复必须遵守下方“评论回复闭环协议”。
 6. 如果暂时无法由 agent 解决，也要调查并记录阻塞 owner、原因、最新证据和下一次可行动条件。
 7. 完成后更新 `event_state.json` 对应 baseline，再从 `event_task.json` 删除该 task。
 8. 处理一个 task 后重新读取 `event_task.json`，继续队列。
+
+## 评论回复闭环协议
+
+GitHub PR 中会被扫描成评论 activity 的 stream 包括：
+
+- `issue_comment`：PR Conversation 顶部普通评论，链接通常是 `#issuecomment-...`。
+- `review_comment`：Files changed 中的 inline review comment，链接通常是 `#discussion_r...`。
+- `review`：PR review 总评，链接通常是 `#pullrequestreview-...`。
+- `commit_comment`：PR commit 上的评论，链接通常是 `#commitcomment-...`。
+
+Claude 回复评论 task 时，必须让回复能被下一轮 JSON 刷新识别：
+
+- `review_comment` 优先点原 inline thread 的 Reply 回复；GitHub 会提供 `in_reply_to_id`，扫描器可自动识别。
+- 所有评论回复都应在正文末尾附加隐藏 marker；`issue_comment`、`review`、`commit_comment` 没有可靠父子回复字段，必须依赖 marker 自动闭环。
+- 一个回复处理多条评论时，写多个 marker。
+- 只有当前 contributor 自己发布的 marker 有效；普通后续评论没有 marker 不会自动关闭 task。
+
+推荐格式：
+
+```md
+Thanks, addressed in the latest update.
+
+<!-- pr-agent:handled issue_comment 4328180705 -->
+<!-- pr-agent:handled review_comment 3112722951 -->
+<!-- pr-agent:handled review 4195854742 -->
+<!-- pr-agent:handled commit_comment 123456789 -->
+```
+
+也可以使用 URL marker：
+
+```md
+<!-- pr-agent:handled https://github.com/owner/repo/pull/1#issuecomment-4328180705 -->
+<!-- pr-agent:handled https://github.com/owner/repo/pull/1#discussion_r3112722951 -->
+<!-- pr-agent:handled https://github.com/owner/repo/pull/1#pullrequestreview-4195854742 -->
+<!-- pr-agent:handled https://github.com/owner/repo/commit/<sha>#commitcomment-123456789 -->
+```
+
+扫描器只在当前 task 的所有 `details.activities` 都有有效回复证据时自动推进 baseline 并删除 task。只处理部分评论时，task 会保留并在 `details.replyResolution.unresolvedIds` 中列出未闭环的 activity。
 
 ## `CI_FAILURE`
 
@@ -71,6 +109,7 @@
 完成条件：
 
 - 已回复、已修改并回复，或已记录不需要回复的明确原因；
+- 如果做了 GitHub 回复，回复必须包含对应 `pr-agent:handled` marker；inline review comment 还应回复原 thread；
 - 仅推进 `commentBaselines.maintainer`；
 - 删除对应 task。
 
@@ -84,6 +123,7 @@ Bot 评论不能因为来源是 bot 就忽略。
 - 对真实问题采取行动；
 - 对已处理或误报的问题留下必要回复或记录；
 - 对 bot review comments，确认是否已经出现非 bot 回复；如果已全部有人回复，扫描器可自动清理，否则主 Claude 必须处理。
+- 如果做了 GitHub 回复，回复必须包含对应 `pr-agent:handled` marker；inline review comment 还应回复原 thread。
 
 完成条件：
 
@@ -105,6 +145,7 @@ Bot 评论不能因为来源是 bot 就忽略。
 完成条件：
 
 - 已做必要回复/修改，或已记录无需行动的理由；
+- 如果做了 GitHub 回复，回复必须包含对应 `pr-agent:handled` marker；inline review comment 还应回复原 thread；
 - 仅推进 `commentBaselines.user`；
 - 删除对应 task。
 
