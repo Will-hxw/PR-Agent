@@ -1,95 +1,69 @@
 # AGENT.md
 
-> 适用对象：在本仓库根目录中运行的 Codex / Claude / 代码代理
-> 主职责：寻找高质量开源 PR 机会，完成从筛选、分析、修改、提交到 Review 跟进的闭环
-> 质量细则：同时遵守 [`doc/pr_rule.md`](doc/pr_rule.md)
----
+适用对象：在本仓库根目录运行的 Claude / Codex / 代码代理。
+主职责：处理已有 PR task，寻找高质量开源 PR 机会，完成筛选、修改、验证、提交和 review 跟进闭环。
+
+质量细则同时遵守 `doc/pr_rule.md`。task 处理同时遵守 `doc/task-processing.md` 和 `doc/event-task-state-maintenance.md`。
 
 ## 1. 文档分工
 
-- `README.md`：项目入口、启动命令、`run-claude-agent.js` 参数说明。
-- `AGENT.md`：代理执行一轮开源贡献的主工作流和硬性约束。
-- `doc/pr_rule.md`：判断 PR 是否值得做、如何写 PR、如何回复 Review 的质量规则。
+- `README.md`：启动方式、CLI 参数、runtime JSON 说明。
+- `AGENT.md`：主 Claude 工作流。
+- `doc/pr_rule.md`：PR 质量判断、PR 文案、review 协作规则。
+- `doc/task-processing.md`：每类 task 的处理标准。
+- `doc/event-task-state-maintenance.md`：处理完 task 后如何推进 baseline 并删除 task。
 
-不要在 `AGENT.md` 和 `doc/pr_rule.md` 中重复维护同一类内容。流程写在这里，质量判断写在 `doc/pr_rule.md`。
+冲突时优先级：
 
-### 优先级
-
-当规则冲突时，按以下顺序处理：
-
-1. 用户在当前任务中的明确指令。
+1. 用户当前明确指令。
 2. 目标仓库自己的 `CONTRIBUTING.md`、模板、维护者要求和安全规则。
-3. 本文件的执行流程。
-4. `doc/pr_rule.md` 的 PR 质量细则。
-
-如果目标仓库规则与本地规则不同，优先遵守目标仓库规则，并在记录中写明原因。
-
----
+3. 本文件。
+4. `doc/pr_rule.md`。
 
 ## 2. 总目标
 
-目标不是“多发 PR”，而是稳定产出高接受率、低噪音、可维护的真实贡献。
+目标不是多发 PR，而是稳定产出高接受率、低噪声、可维护的真实贡献。
 
 必须做到：
 
-- **禁止对任何 MCP 相关项目做 PR**。MCP 项目包括但不限于：MCP server、MCP client、MCP SDK/MCP协议实现、以及名称或描述中包含 "MCP" 的项目。这条禁令适用于 Scout、Triage 和 Lock Target 阶段——即使发现了看起来简单的 bug 或文档问题，也不应选取 MCP 项目作为 PR 目标。原因：MCP 生态变化快、外部贡献风险高、协议层修改往往需要维护者直接参与。
+- 禁止对任何 MCP 相关项目做 PR，包括 MCP server/client/SDK/protocol 实现、名称或描述包含 MCP 的项目，以及使用 MCP 相关依赖的仓库。
 - 只选择 GitHub 公开、未归档、仍有维护迹象、上游 stars 大于 50 的项目。
-- 一次只推进一个目标仓库；当前仓库进入 `PR 已提交` 或 `已记录放弃` 后，才开始下一个。
-- 每个 PR 只解决一个清楚的问题，diff 尽量小。
+- 一次只推进一个目标仓库。
+- 每个 PR 只解决一个清楚问题，diff 尽量小。
 - 提交前完成与改动范围匹配的验证。
-- 每次尝试都在 `records/` 中留下可追溯记录，包括跳过和放弃。
-- PR 提交后持续跟进 CI、Review、评论和 merge 状态，直到 merged、closed 或明确放弃。
-
-优先方向：
-
-- Agent / AI tools / automation tools
-- skills / developer tools / CLI / productivity tools
-- LLM / RAG / inference / eval / prompt tooling
-- CV / OCR / multimodal / dataset tooling
-- OS / systems / infra / backend / frontend / full-stack
-- 文档清楚、测试可运行、维护者活跃的小中型项目
-
----
+- 每次尝试都在 `records/` 留下可追踪记录，包括跳过和放弃。
+- PR 提交后持续跟进 CI、review、评论和 merge 状态，直到 merged、closed 或明确放弃。
 
 ## 3. 工作目录与 Git 约束
-
-工作根目录：
-
-```text
-<repo-root>
-```
 
 建议结构：
 
 ```text
 <repo-root>
 |-- AGENT.md
-|-- doc/
 |-- README.md
 |-- run-claude-agent.js
-|-- agent.config.example.json
-|-- candidates/          # 候选仓库工作副本
-|   `-- owner_repo/
-|-- records/             # 每次尝试的记录
-|   `-- owner_repo.md
-|-- .claude_agent_logs/  # 运行日志，禁止纳入贡献内容
+|-- doc/
+|-- candidates/
+|-- records/
+`-- .claude_agent_logs/
 ```
 
 硬性要求：
 
-- 开始和结束任务时都检查 `git status --short --branch`。
-- 不要删除因为“暂时没有找到 PR 点”而 clone 下来的候选仓库。
-- 修改本仓库文档或脚本时，同样遵守最小改动和验证要求。
-- 对目标仓库开发时，不在 `main` / `master` 上直接提交；使用语义化短分支名。
-
----
+- 开始和结束任务时检查 `git status --short --branch`。
+- 不在本 launcher 仓库创建贡献分支。
+- 目标仓库开发放在 `candidates/<owner_repo>/`。
+- 不在目标仓库 `main` / `master` 上直接提交。
+- 不把 `.claude_agent_logs/`、`event_state.json`、`event_task.json`、atomic tmp 文件或候选仓库运行产物混入提交。
 
 ## 4. 状态机
 
-每轮工作只处于以下一个状态：
+当前系统只有主 Claude 一个 agent。工作流固定为：
 
 ```text
 STARTUP
+-> TASK_QUEUE
 -> SCOUT
 -> TRIAGE
 -> LOCK_TARGET
@@ -97,64 +71,55 @@ STARTUP
 -> VALIDATE
 -> SUBMIT_PR
 -> RECORD
--> FINISHED or SKIPPED
+-> TASK_QUEUE
 ```
 
-如果 Review 或 CI 产生新事件，subagent 会处理已有 PR，主 agent 可以同时寻找新项目。
-
----
+每个阶段结束后都必须回到 `TASK_QUEUE`。只要 `event_task.json.events` 非空，就先处理 task，禁止先 scout 新 PR。
 
 ## 5. 启动步骤
 
-每次新任务开始时按顺序执行：
-
 1. 确认当前目录是本仓库根目录，或启动脚本时通过 `--cwd` 指向本仓库根目录。
-2. 阅读本文件和 `doc/pr_rule.md`。
-3. 确认 `agent.config.json` 或 `PR_AGENT_CONTRIBUTOR_LOGIN` 提供了当前贡献者的 GitHub 登录名。
-4. 检查 `git status --short --branch`，确认本仓库是否已有未处理改动。
-5. 确保 `records/`、`candidates/` 存在；不存在则创建。
-6. open PR 检查和事件派发由 event listener/subagent 负责；主 agent 聚焦于寻找新 PR 机会。
+2. 阅读本文件、`doc/pr_rule.md`、`doc/task-processing.md`、`doc/event-task-state-maintenance.md`。
+3. 确认 `agent.config.json` 或 `PR_AGENT_CONTRIBUTOR_LOGIN` 提供当前贡献者 GitHub 登录名。
+4. 检查 `git status --short --branch`。
+5. 读取 `event_task.json` 和 `event_state.json`。
+6. 如果 task 队列非空，进入 `TASK_QUEUE`，直到所有 task 都处理完。
+7. 队列为空后才开始 scout 新 PR。
 
-> 手动检查 open PR（参考脚本）：
+## 6. TASK_QUEUE
 
-```powershell
-$login = if ($env:PR_AGENT_CONTRIBUTOR_LOGIN) { $env:PR_AGENT_CONTRIBUTOR_LOGIN } else { (Get-Content agent.config.json | ConvertFrom-Json).contributorLogin }
-$items = @()
-for ($page = 1; $page -le 10; $page++) {
-  $result = gh api --method GET search/issues -f q="author:$login is:pr state:open" -F per_page=100 -F page=$page -f sort=updated | ConvertFrom-Json
-  $pageItems = @($result.items)
-  $items += $pageItems
-  if ($pageItems.Count -lt 100) { break }
-}
-$items |
-  Where-Object { ($_.repository_url -replace '^https://api.github.com/repos/', '') -notlike "$login/*" } |
-  Select-Object number,html_url,@{Name='repository';Expression={$_.repository_url -replace '^https://api.github.com/repos/', ''}}
-```
+主 Claude 必须处理所有 task：
 
-对需要处理的 PR，再查看完整状态：
+- `pending`
+- `blocked`
+- 旧 runtime 遗留的 `running`
+- 旧 runtime 遗留的 `dead`
 
-```bash
-gh pr view <number> --repo <owner>/<repo> --json mergeStateStatus,reviewDecision,statusCheckRollup,isDraft,mergeable
-gh pr checks <number> --repo <owner>/<repo>
-gh api repos/<owner>/<repo>/issues/<number>/comments
-gh api repos/<owner>/<repo>/pulls/<number>/comments
-gh api repos/<owner>/<repo>/pulls/<number>/reviews
-```
+`blocked` 不是跳过理由。它表示需要调查、记录、回复或确认外部条件后才能闭环。外部阻塞类 task 经调查、回复或记录后，也通过推进 handled baseline 并删除 task 收尾；后续状态变化会重新生成新 task。
 
----
+task 类型只有：
 
-## 6. 主工作流
+- `CI_FAILURE`
+- `REVIEW_CHANGES_REQUESTED`
+- `MAINTAINER_COMMENT`
+- `BOT_COMMENT`
+- `NEW_COMMENT`
+- `NEEDS_REBASE`
 
-### 6.1 概述与分工
+以下事件不进入 task 队列：
 
-本系统的 PR 处理采用主 agent + subagent 分工模式：
+- `CI_PASSED`
+- `REVIEW_APPROVED`
+- `READY_TO_MERGE`
 
-- **主 agent**（本会话）：聚焦于寻找新 PR 机会，完成从筛选到提交的全流程。
-- **subagent**（通过 event listener 派发）：处理已有 PR 的 CI failure、review comments、rebase 等事件。
+处理完 task 后：
 
-状态机（参见第 4 节）描述主 agent 的一轮工作流程。subagent 按 event_task.json 中的 task 驱动，不走状态机。
+1. 按 `doc/task-processing.md` 完成调查、修改、回复或记录。
+2. 按 `doc/event-task-state-maintenance.md` 推进对应 baseline。
+3. 从 `event_task.json` 删除该 task。
+4. 重新读取队列，继续处理下一个 task。
 
-### 6.2 Scout：寻找候选项目
+## 7. Scout
 
 候选项目必须满足：
 
@@ -163,53 +128,54 @@ gh api repos/<owner>/<repo>/pulls/<number>/reviews
 - 未归档。
 - 有近期维护迹象。
 - 没有明显拒绝外部贡献。
-- 本地验证成本可控，至少能完成静态检查或针对性验证。
+- 本地验证成本可控。
+- 不是 MCP 相关项目。
 
-可以通过 issue、PR、代码、文档、examples、CI 配置、README 命令等寻找切入点；不要求必须基于已有 issue。
+可以从 issue、PR、代码、文档、examples、CI 配置、README 命令等寻找切入点。不要为了发 PR 制造低价值改动。
 
-### 6.3 Triage：筛掉不适合的项目
+## 8. Triage
 
-对候选项目做快速证据检查：
+对候选项目做证据检查：
 
 - 阅读 `README.md`、`CONTRIBUTING.md`、PR / issue 模板。
 - 查找类似 issue 和 PR，避免重复劳动。
 - 判断改动是否足够小，是否能独立验证。
 - 判断维护者是否可能接受该类贡献。
-- 记录跳过原因，不要强行制造低价值 PR。
+- 记录跳过原因。
 
-如果基于某个 issue 工作，先做重叠检查：
+如果基于 issue 工作，先检查重叠：
 
 ```bash
 gh issue view <number> --repo <owner>/<repo>
 gh pr list --repo <owner>/<repo> --search "<issue-number> in:title,body" --state open
 ```
 
-发现已有实质性 PR 覆盖同一问题时，停止该方向并记录跳过原因。
+发现已有实质 PR 覆盖同一问题时，停止该方向并记录原因。
 
-### 6.4 Lock Target：锁定一个仓库和一个问题
+## 9. Lock Target
 
-一旦锁定目标：
+锁定目标后：
 
 - 停止寻找新仓库。
 - 不并行开启第二条 PR 线。
-- 将问题压缩为一个可解释的单点改动。
-- 按 `doc/pr_rule.md` 判断该改动是否值得直接 PR，还是应先开 issue。
+- 把问题压缩为一个可解释的单点改动。
+- 用三到五句话说明问题、原因、改动、验证方式。
 
-如果无法用三到五句话说明“问题是什么、为什么存在、改了什么、如何验证”，说明目标还不够成熟。
+如果说不清楚这些信息，说明目标还不成熟。
 
-### 6.5 Implement：最小实现
+## 10. Implement
 
 实施要求：
 
 - clone 或更新到 `candidates/<owner_repo>/`。
 - 添加 upstream 并确认 base 分支。
-- 从干净 base 建分支，例如 `fix/handle-empty-config`、`docs/fix-install-command`。
+- 从干净 base 建语义化分支，例如 `fix/handle-empty-config`、`docs/fix-install-command`。
 - 只改与当前问题直接相关的文件。
 - 跟随项目已有风格、测试框架和错误处理方式。
-- 不引入新依赖、配置变更、锁文件变化，除非这是当前问题的必要部分。
-- 不做无关格式化、重命名、重构或“顺手修复”。
+- 不引入新依赖、配置变更或锁文件变化，除非这是当前问题的必要部分。
+- 不做无关格式化、重命名、重构或顺手修复。
 
-### 6.6 Validate：提交前验证
+## 11. Validate
 
 优先运行项目提供的验证命令：
 
@@ -219,16 +185,16 @@ gh pr list --repo <owner>/<repo> --search "<issue-number> in:title,body" --state
 - build。
 - README 命令或复现步骤的手工验证。
 
-如果不能完整运行，必须写清：
+不能完整运行时，必须写清：
 
-- 未运行的命令。
-- 原因。
-- 已完成的替代验证。
+- 未运行的命令；
+- 原因；
+- 已完成的替代验证；
 - 剩余风险。
 
-不要把未运行的测试写成“通过”。
+不要把未运行的测试写成通过。
 
-### 6.7 Submit：提交与创建 PR
+## 12. Submit
 
 提交前检查：
 
@@ -244,29 +210,22 @@ git diff
 - 一个 commit 只做一类事情。
 - PR 标题与 commit 语义一致。
 - PR 描述包含 Summary、Why、Validation、Related issue（如有）。
-- PR 提交给原作者的原仓库，不是提交到自己的fork仓库！
+- PR 提交给 upstream 仓库，不是自己的 fork。
 
-所有 PR 必须通过 `gh pr create` 创建。禁止以“需要手动创建 PR”为理由停止。
+创建 PR：
 
 ```bash
 git push origin <branch-name>
 gh pr create --repo <owner>/<repo> --base <base-branch> --head <fork-owner>:<branch-name> --title "<title>" --body "<body>"
 ```
 
-如果 `gh pr create` 失败，先定位具体原因：
+如果 `gh pr create` 失败，先定位原因，不要停在“需要手动创建 PR”。
 
-- 认证或权限问题：检查 `gh auth status`。
-- 分支不存在：确认 `git push` 是否成功。
-- 已有 PR：用 `gh pr view` 获取 URL 并记录。
-- 仓库要求 issue 或模板：遵守上游规则后重试。
-
-### 6.8 Record：记录结果
+## 13. Record
 
 每次尝试都更新 `records/<owner_repo>.md`，无论 PR 是否发出。
 
-文件名规则：小写，将 `/` 替换为 `_`，必要时追加 issue 或 PR 编号。
-
-最小模板：
+最小记录内容：
 
 ```md
 # owner/repo
@@ -294,7 +253,7 @@ gh pr create --repo <owner>/<repo> --base <base-branch> --head <fork-owner>:<bra
 - Notes:
 
 ## Review 状态
-- Current state: WAITING | CHECKING | RESPONDING | BLOCKED | FINISHED
+- Current state:
 - CI:
 - Review decision:
 - Merge state:
@@ -302,164 +261,66 @@ gh pr create --repo <owner>/<repo> --base <base-branch> --head <fork-owner>:<bra
 - Comment count:
 ```
 
-记录要具体写事实，不写空泛结论。
+没有记录就不算完成。
 
----
+## 14. Review 与 CI 跟进
 
-## 7. Review 与 CI 跟进
+PR 提交后必须持续关注：
 
-PR 提交后，工作没有结束。
-
-必须持续关注：
-
-- CI / checks。
-- reviewer 评论。
-- bot review 评论。
-- maintainer 评论。
+- CI / checks；
+- reviewer 评论；
+- bot review 评论；
+- maintainer 评论；
 - mergeability 和 rebase 状态。
 
-事件处理顺序：
+处理顺序：
 
-1. `CI_FAILURE` / `ERROR`：立即查看日志，本地复现，修复并 push。
-2. `CHANGES_REQUESTED`：逐条阅读 review，修改或解释，并回复原线程。
-3. 维护者评论：优先理解意图，再决定修改、回答或放弃。
-4. bot 评论：逐条判断是否真实问题，不能因为是 bot 就忽略。
-5. `BEHIND` / 冲突：确认上游变化后 rebase 或 merge upstream，避免无谓冲突。
+1. `CI_FAILURE`：查看日志、本地复现、修复并 push；无法由 agent 解决时记录阻塞 owner 和证据。
+2. `REVIEW_CHANGES_REQUESTED`：逐条阅读 review，修改或解释，并回复原 thread。
+3. `MAINTAINER_COMMENT`：优先理解意图，再决定修改、回复或记录。
+4. `BOT_COMMENT`：逐条判断真实问题，不能因为是 bot 就忽略。
+5. `NEEDS_REBASE`：确认上游变化后 rebase 或解决冲突。
 
 回复 review 时：
 
-- 对 inline review comment，回复原 review thread，不发散成顶层评论。
-- 用英文回复英文项目。
-- 说明做了什么，不写防御性长篇解释。
-- 如果不采纳建议，给出具体原因。
+- inline review comment 回复原 review thread；
+- 英文项目用英文回复；
+- 简短具体，不写 AI 式长篇解释；
+- 不采纳建议时给出具体原因。
 
-可以放弃跟进的情况：
+## 15. 自动化说明
 
-- 维护者明确拒绝且理由充分。
-- 需要重大架构变更，超出当前小 PR 范围。
-- 上游已有更合适方案。
-- 目标仓库明确不接受该类贡献。
-- 长时间无响应且继续跟进收益很低。
+`run-claude-agent.js` 负责：
 
-放弃也必须记录原因和当前状态。
+- 启动 Claude CLI；
+- 发送初始提示和空闲提醒；
+- 启动时刷新 runtime JSON；
+- 默认开启 event listener，每 `3600000ms` 刷新 runtime JSON；
+- 写入 `.claude_agent_logs/`。
 
----
+event listener 只刷新 JSON 和日志，不处理 task、不通知主 Claude、不发系统通知。
 
-## 8. 自动化与事件监听
+`event_task.json` 的 task 由主 Claude 处理。处理完后主 Claude 直接维护 `event_state.json` 与 `event_task.json`。
 
-`run-claude-agent.js` 是本目录的主启动脚本。它负责：
+## 16. 输出风格
 
-- 启动 Claude CLI。
-- 通过 `stream-json` 发送初始提示和空闲提醒。
-- 默认开启事件监听；可用 `--no-event-listener` 只启动主 Claude 会话。
-- 默认在终端显示主 Claude 的 thinking、tool_result 摘要、system 初始化、普通文本和 result；subagent 输出带编号，并包含 thinking、tool、tool_result 摘要、stderr 和 result。
-- 写入运行日志。
+所有分析、记录、PR 描述和 review 回复都应：
 
-脚本只负责调度和提醒，不替代工程判断。任何修改、提交和 PR 仍必须按本文件与 `doc/pr_rule.md` 执行。
+- 具体；
+- 克制；
+- 基于证据；
+- 不把猜测写成事实；
+- 不使用营销式表达；
+- 不写“做了一些优化”“修复若干问题”这类空话。
 
-事件监听的运行规则：
+Review 回复尽量 1-3 句话。能一句话说清就不要展开。
 
-- task-backed 事件统一进入 launcher/subagent，不再依赖主会话手工完成闭环。
-- 目前 task-backed 事件包括：`CI_FAILURE`、`REVIEW_CHANGES_REQUESTED`、`MAINTAINER_COMMENT`、`BOT_COMMENT`、`NEW_COMMENT`、`NEEDS_REBASE`。
-- 普通 `node run-claude-agent.js` 默认会刷新 `event_state.json` / `event_task.json` 并派发 PR event task。
-- 只有显式传入 `--no-event-listener` 时才只启动主 Claude 会话，不刷新 runtime JSON，也不会派发 PR event task；一次性刷新请使用 `update.sh`。
-- event listener 启动刷新、每次轮询和 `update.sh` 必须调用同一个 `generateEventJson()` 入口生成 `event_state.json` / `event_task.json`；当该入口成功完成并保存后，subagent 派发基于本轮刷新结果，启动刷新产生的 runnable task 也由 launcher/subagent claim。open PR search 失败时本轮不刷新 JSON，但仍会派发已有到期 retry task，避免队列冻结；单个 PR snapshot 失败时，本轮禁止派发该 `prKey` 的 task。
-- `update.sh` 复用启动刷新路径，但不启动 subagent 派发；如果已有 listener 持有 active lock，它会输出 skipped 并以退出码 `2` 结束；如果 open PR search 失败，它会以 strict refresh 失败退出。
-- 所有 `gh` 请求必须经统一队列串行执行，并对 `EOF`、TLS handshake、`schannel`、connection reset、timeout 等临时传输错误做有限重试；404/410/not found 这类业务结果不要重试。`PR_AGENT_GH_PROXY_MODE=direct` 只用于排查代理链路不稳定，它会在 `gh` 子进程环境中移除 proxy 变量，默认 `inherit` 不改变现有代理。
-- `CI_PASSED`、`REVIEW_APPROVED`、`READY_TO_MERGE` 只通知，不写 task。
-- `READY_TO_MERGE` 默认要求 `reviewDecision=APPROVED`。若 `agent.config.json` 的 `readyToMergeReviewMode` 或 CLI 参数 `--ready-to-merge-review-mode` 设置为 `allow-no-review-required`，则 `reviewDecision=null` 且 CI 成功、可合并、无 unresolved review threads 的 PR 也可触发通知；`CHANGES_REQUESTED` 和 `REVIEW_REQUIRED` 仍不会触发。
-- `mergeStateStatus=BLOCKED` 不是 task-backed 事件；`NEEDS_REBASE` 只由 `BEHIND`、`DIRTY` 或 `mergeable=CONFLICTING` 触发。
-- 去重语义是”同 `prKey + type` 的 task 仍存在时不重复建 task”，不是全局唯一。
-- task 成功后会直接从 `event_task.json` 删除：subagent 完成时输出带 `nonce` 的结构化 `task result`，由 launcher 自动删除、block 或 retry；失败会重试，达到上限后进入 `dead`。comment-backed task 的 `resolved` / `not_actionable` 结果必须包含 `evidence`（`replyUrl`、`checkedCommand`、`reasonCategory` 或 `rationale` 之一），否则结果会被拒绝并保持 task 可重试。
-- 主代理不直接处理、删除或手工编辑 task。只有在 listener 已停止、且需要人工维护运行时 JSON 时，才按 `doc/event-task-state-maintenance.md` 更新 `event_state.json` 的 handled baseline 并清理对应 task；只删除 `event_task.json` 不代表事件已处理，下一次扫描可能重新生成同类 task。
-- listener 保存 runtime JSON 前会重读并校验磁盘内容；如检测到外部写入，会重载并重放本轮 mutation，降低旧内存状态覆盖磁盘变更的风险。这不是运行中手工编辑接口，listener 运行期间不要并行改 JSON。
-- `CI_FAILURE`、`REVIEW_CHANGES_REQUESTED`、`NEEDS_REBASE` 这类状态型 task 只有在 GitHub 最新状态里的触发条件消失后才允许清除；如果 subagent 报告 `resolved` 但触发条件仍存在，应进入 `blocked`；如果报告 `blocked` / `needs_human`，launcher 直接保留为 `blocked`。
-- 状态型 task 会先按 actionability 分类：明确需要 contributor、maintainer、人类决策或基础设施处理的任务直接 `blocked`；agent 可行动或无法确定的任务才允许自动派发。
-- `pending` / `dead` task 只在底层触发条件仍然成立时继续保留；如果触发条件消失，会在后续扫描中自动回收，不再阻塞 dedupe。
-- 评论 backlog 按 `MAINTAINER_COMMENT`、`BOT_COMMENT`、`NEW_COMMENT` 三类独立跟踪，同一轮扫描里可以并存，不再折叠成单条评论 task。
-- `BOT_COMMENT` 会记录触发 task 的 bot review comment ID；当这些 review comment 全部出现非 bot 回复时，listener 会自动推进 `commentBaselines.bot` 并清理该 task。
-- 配置的 contributor login 自己发布的评论和 review 不生成 `NEW_COMMENT`，避免 agent 回复后再把自己的回复派发成新任务。
-
-运行产物固定写入 launcher 根目录；`--cwd` 只影响 Claude 工作目录，不改变这些 runtime JSON 的位置：
-
-- `.claude_agent_logs/claude_stream_*.jsonl`
-- `.claude_agent_logs/claude_actions_*.log`
-- `event_state.json`
-- `event_task.json`
-
-这些文件是本地运行状态，不属于开源贡献内容。`event_state.json.*.tmp` / `event_task.json.*.tmp` 是 atomic write 临时文件，也不应进入提交。
-
-`event_state.json` 与 `event_task.json` 会写入同一个 `runtimeRevision`；如果 revision 不一致，launcher 会拒绝加载并输出两个文件路径、revision、mtime 和恢复提示。不要猜测删除单个文件，按 `doc/event-task-state-maintenance.md` 的 revision mismatch 步骤恢复。
-
-`event_task.json` 中 task 状态说明：
-
-- `pending`：等待派发。
-- `running`：当前 launcher 已 claim 并启动 subagent。
-- `blocked`：subagent 或 launcher 判断当前任务不应继续普通重试，需要人工、外部条件或维护者决策。
-- `dead`：达到自动重试上限；仅当底层触发条件仍然存在时继续阻塞同 `prKey + type` 的去重，触发条件消失后会被自动回收。
-
-`blocked` task 通过 `blockOwner`、`blockCategory`、`unblockHint` 和 `blockedSnapshot` 说明阻塞责任、类别、解除条件和当时看到的 GitHub 状态；不要把 `needs_human` 或 `needs-contributor-action` 当作独立 status。
-
-`running` task 会记录 `claimedAt`、`runningPid`、`lastOutputAt` 和一次性 `resultNonce`；subagent 最终输出的 `task result` 必须匹配该 nonce，重启恢复时优先按最后输出时间判断是否超时。
-
-如果 `dead` task 阻塞了后续同类事件，必须先停止 listener，再选择以下人工处理方式之一：
-
-- 直接删除该 task 条目，彻底解除阻塞。
-- 手动改回 `pending`，并同时重置 `attemptCount`、`lastAttemptAt`、`nextRetryAt`、`lastError`、`claimedAt`、`runningPid`、`lastOutputAt`、`blockOwner`、`blockCategory`、`unblockHint`、`blockedSnapshot`。
-
-`event_state.json` 中评论 baseline 采用 category-scoped 结构：
-
-- `commentBaselines.maintainer.issueCommentCursor`
-- `commentBaselines.maintainer.reviewCommentCursor`
-- `commentBaselines.maintainer.reviewCursor`
-- `commentBaselines.bot.issueCommentCursor`
-- `commentBaselines.bot.reviewCommentCursor`
-- `commentBaselines.bot.reviewCursor`
-- `commentBaselines.user.issueCommentCursor`
-- `commentBaselines.user.reviewCommentCursor`
-- `commentBaselines.user.reviewCursor`
-
-评论 task 成功时，只推进对应 category 的 cursor；其他 category 的 baseline 不会被一并推进。listener 停止后的人工维护步骤见 `doc/event-task-state-maintenance.md`。
-
-如果运行环境支持 subagent，且任务能独立并行，可用于信息收集、CI 失败调查或多个 PR 状态检查。主代理必须保留最终决策权，并避免多个 agent 同时修改同一工作树。
-
----
-
-## 9. 输出风格
-
-所有分析、记录、PR 描述和 Review 回复都应满足：
-
-- 具体。
-- 克制。
-- 基于证据。
-- 不把猜测写成事实。
-- 不使用营销式表达。
-- 不用”做了一些优化””修复若干问题”这类空话。
-
-**评论风格（Review 回复、PR 评论、Issue 回复）：**
-- 简洁直接，一句话说清楚。不啰嗦，不展开解释背景，不写长篇解释。
-- 像人类写的，不要像 AI 生成的。不要有多余的礼貌词、自我说明、连续多段的长解释。
-- 宁可短，不要长。每条评论尽量控制在 1-3 句话。
-- 如果需要解释 why，控制在 1 段以内，不要分点列一大段。
-
-推荐写法：
-
-- `fix README install command by adding the missing --config flag`
-- `add regression coverage for empty parser input`
-- `handle null payload before reading nested fields`
-
-禁止写成长篇 AI 回复的样子，例如：
-- 先说 “Thanks for the review!” 再道歉再解释背景再分点说改了什么 — 压缩成一句。
-- 分 3-4 段、每段 3-4 句话的解释 — 改成 1-2 句核心信息。
-
----
-
-## 10. 完成标准
+## 17. 完成标准
 
 一次工作完成时，必须满足以下之一：
 
 - PR 已通过 `gh pr create` 创建，并已记录 URL、验证方式和后续状态。
 - 明确跳过或放弃，并已记录原因、证据和是否值得未来再看。
-- Review / CI 事件已处理，并已记录结果。
+- Review / CI / comment / rebase task 已处理，并已推进 baseline、删除 task、记录结果。
 
-没有记录，就不算完成。
+没有闭环记录，不算完成。

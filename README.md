@@ -1,53 +1,43 @@
 # PR Agent
 
-PR Agent 是一个用于持续寻找、提交和跟进 GitHub 开源 PR 的 长时间高质量运行的Agent。核心目标是产出小而准确、容易被维护者接受的真实贡献，而不是批量制造低质量 PR。
-
----
+PR Agent 是一个用于持续寻找、提交和跟进 GitHub 开源 PR 的单 Claude Agent 工作区。当前架构只保留主 Claude：launcher 负责启动 Claude、刷新 runtime JSON、记录日志；所有 task 都由主 Claude 处理闭环。
 
 ## 文档入口
 
-- [`AGENT.md`](AGENT.md)：代理执行工作流。先读这里。
-- [`doc/pr_rule.md`](doc/pr_rule.md)：PR 质量、范围、验证和 Review 协作规则。
-- [`run-claude-agent.js`](run-claude-agent.js)：Claude CLI 启动与提醒脚本。
-
-职责边界：
-
-- 流程写在 `AGENT.md`。
-- PR 质量判断写在 `doc/pr_rule.md`。
-- 启动方式和脚本参数写在 `README.md`。
-
----
+- `AGENT.md`：主 Claude 工作流与执行规则。
+- `doc/pr_rule.md`：PR 质量、范围、验证和 review 协作规则。
+- `doc/task-processing.md`：`event_task.json` 中每类 task 的处理规范。
+- `doc/event-task-state-maintenance.md`：处理完 task 后如何维护 `event_state.json` 与 `event_task.json`。
+- `run-claude-agent.js`：Claude CLI 启动、空闲提醒和 PR 事件 JSON 刷新脚本。
 
 ## 工作区结构
 
 ```text
 <repo-root>
 |-- AGENT.md
-|-- doc/pr_rule.md
 |-- README.md
 |-- run-claude-agent.js
+|-- update.sh
 |-- agent.config.example.json
-|-- LICENSE
-|-- candidates/          # clone 下来的候选仓库
+|-- doc/
+|-- candidates/          # 候选仓库工作副本
 |-- records/             # 每个项目的尝试记录
-`-- .claude_agent_logs/  # 脚本运行日志
+`-- .claude_agent_logs/  # 本地运行日志
 ```
 
-运行产物和候选仓库默认不应混入提交。开始和结束工作时都检查：
+运行状态文件、日志和候选仓库不属于对外贡献内容。开始和结束工作时检查：
 
 ```bash
 git status --short --branch
 ```
 
----
-
 ## 前置要求
 
 - Node.js 可用。
 - Claude CLI 可用，Windows 默认命令为 `claude.cmd`。
-- GitHub CLI `gh` 已登录并有创建 PR 的权限。
+- GitHub CLI `gh` 已登录，并有创建 PR、读取 PR 状态和回复评论的权限。
 - Git 可用。
-- 网络能访问 GitHub。
+- 网络可访问 GitHub。
 
 快速检查：
 
@@ -58,23 +48,21 @@ git --version
 node --check run-claude-agent.js
 ```
 
----
-
 ## 本地配置
 
-公开仓库不保存个人 GitHub 登录名。首次运行事件监听前，复制示例配置并填写自己的账号：
+公开仓库不保存个人 GitHub 登录名。首次运行前复制配置：
 
 ```bash
 cp agent.config.example.json agent.config.json
 ```
 
-Windows PowerShell 可用：
+Windows PowerShell：
 
 ```powershell
 Copy-Item agent.config.example.json agent.config.json
 ```
 
-`agent.config.json` 示例：
+示例：
 
 ```json
 {
@@ -83,26 +71,15 @@ Copy-Item agent.config.example.json agent.config.json
 }
 ```
 
-`readyToMergeReviewMode` 默认是 `require-approval`。如果目标仓库没有强制 review approval，可改为 `allow-no-review-required`，让 `reviewDecision=null` 且技术上可合并的 PR 也触发 `READY_TO_MERGE` 通知。
-
-也可以不创建本地配置文件，改用环境变量：
+也可使用环境变量：
 
 ```bash
 PR_AGENT_CONTRIBUTOR_LOGIN=your-github-login node run-claude-agent.js
 ```
 
-可选设置 `PR_AGENT_READY_TO_MERGE_REVIEW_MODE=allow-no-review-required`，效果等同于 `readyToMergeReviewMode`。
+`readyToMergeReviewMode` 默认是 `require-approval`。如目标仓库没有强制 review approval，可设为 `allow-no-review-required`，让 `reviewDecision=null` 且 CI 成功、可合并、无 unresolved review threads 的 PR 记录为 ready 状态。该设置不会放行 `CHANGES_REQUESTED` 或 `REVIEW_REQUIRED`。
 
-`PR_AGENT_GH_PROXY_MODE` 默认是 `inherit`，所有 `gh` 命令继承当前 shell 的代理环境。若 `update.sh` 或 event listener 反复出现 `EOF`、TLS handshake、`schannel` 之类传输错误，而直接不走代理访问 GitHub 更稳定，可临时设置 `PR_AGENT_GH_PROXY_MODE=direct`；该模式只会在执行 `gh` 子进程时移除 `HTTP_PROXY`、`HTTPS_PROXY`、`ALL_PROXY` 及小写变体，不改变其他进程环境。
-
-PowerShell：
-
-```powershell
-$env:PR_AGENT_CONTRIBUTOR_LOGIN = "your-github-login"
-node run-claude-agent.js
-```
-
----
+`PR_AGENT_GH_PROXY_MODE` 默认是 `inherit`，所有 `gh` 命令继承当前 shell 的代理环境。若需要排查代理链路，可临时设置 `PR_AGENT_GH_PROXY_MODE=direct`；该模式只在 `gh` 子进程中移除 proxy 环境变量。
 
 ## 快速启动
 
@@ -112,36 +89,27 @@ node run-claude-agent.js
 node run-claude-agent.js
 ```
 
-默认启动会开启 event listener，刷新 `event_state.json` / `event_task.json`，并派发到期 task。只想启动主 Claude 会话时使用：
+默认流程：
+
+1. 启动前先调用 `generateEventJson()` 刷新 `event_state.json` / `event_task.json`。
+2. 启动主 Claude。
+3. 主 Claude 先处理 `event_task.json` 中所有 task。
+4. 队列为空后才 scout 新 PR。
+5. event listener 每 `3600000ms` 再次刷新 runtime JSON，只写文件和日志。
+
+只启动主 Claude、不刷新 PR event JSON：
 
 ```bash
 node run-claude-agent.js --no-event-listener
 ```
----
 
-## 脚本做什么
+一次性刷新 runtime JSON：
 
-`run-claude-agent.js` 封装 Claude CLI 的 `stream-json` 模式，主要负责：
+```bash
+bash update.sh
+```
 
-- 启动 Claude。
-- 发送初始 prompt。
-- 在长时间无输出时自动补发提醒。
-- 默认轮询 GitHub PR 事件并提醒处理 review、CI、评论和 merge 状态变化。
-- 默认在终端显示主 Claude 的 `thinking`、`tool_result` 摘要、`system` 初始化、普通文本和 `result`；subagent 输出带 `[subagent#N]` 编号，并包含 thinking、tool、tool_result 摘要、stderr 和 result。
-- 写入结构化运行日志。
-
-脚本只负责调度。是否值得改、怎么改、怎么验证、是否提交 PR，仍以 `AGENT.md` 和 `doc/pr_rule.md` 为准。
-
----
-
-## PR 目标规则
-
-- 只向 upstream 开源仓库创建 PR，不要向自己的 fork 或个人仓库创建 PR。
-- 如果目标仓库在 `<contributor-login>/*` 下，先确认它是否只是 fork；fork 内部 PR 不会把改动送到上游，不能作为开源贡献结果记录。
-- 正确流程是把分支 push 到自己的 fork，然后用 `gh pr create --repo <upstream-owner>/<upstream-repo> --head <fork-owner>:<branch-name>` 向 upstream 创建 PR。
-- 事件监听生成 `event_state.json` / `event_task.json` 时会跳过 `agent.config.json` 中 `contributorLogin` 名下的 open PR，避免把自己的 fork PR 纳入 review / CI 跟进队列。
-
----
+`update.sh` 复用启动刷新路径。若已有 listener 持有 active lock，会输出 `event JSON skipped: active listener lock` 并以退出码 `2` 结束；open PR search 失败会以 strict refresh 失败退出。
 
 ## CLI 参数
 
@@ -149,14 +117,13 @@ node run-claude-agent.js --no-event-listener
 
 | 参数 | 默认值 | 说明 |
 |---|---:|---|
-| `--cwd` | 当前仓库根目录 | Claude 工作目录；`event_state.json` / `event_task.json` 仍固定写入 launcher 根目录 |
-| `--prompt` | 内置提示 | 发送给 Claude 的初始提示和后续提醒内容 |
+| `--cwd` | 当前目录 | Claude 工作目录；runtime JSON 仍固定写入 launcher 根目录 |
+| `--prompt` | 内置提示 | 发送给主 Claude 的初始提示和后续提醒 |
 | `--claude-command` | Windows: `claude.cmd`；其他平台: `claude` | Claude CLI 命令 |
-| `--effort` | `max` | Claude 思考强度：`low` / `middle` / `high` / `xhigh` / `max`；主 Agent 与 subagent 共用 |
+| `--effort` | `max` | Claude 思考强度：`low` / `middle` / `high` / `xhigh` / `max` |
 | `--show-thinking` | `true` | 在终端显示主 Claude thinking 事件 |
-| `--no-show-thinking` | - | 隐藏主 Claude thinking 事件 |
-| `--show-subagent-output` | `true` | 在终端显示 subagent 输出；多个 subagent 使用 `[subagent#N]` 编号 |
-| `--no-show-subagent-output` | - | 隐藏 subagent 终端输出 |
+| `--no-show-thinking` | - | 隐藏 thinking 事件 |
+| `--show-tool-results` | `false` | 显示 tool result 详情 |
 | `--show-raw-events` | `false` | 打印原始 JSON 事件 |
 | `--help`, `-h` | - | 显示帮助 |
 
@@ -173,184 +140,113 @@ node run-claude-agent.js --no-event-listener
 
 | 参数 | 默认值 | 说明 |
 |---|---:|---|
-| `--enable-event-listener` | `true` | 开启 GitHub PR 事件轮询 |
-| `--no-event-listener` | - | 关闭 GitHub PR 事件轮询，只启动主 Claude 会话 |
-| `--event-poll-interval` | `3600000` | 事件轮询间隔，单位毫秒，默认 1 小时 |
-| `--event-notification` | `true` | 开启系统通知 |
-| `--no-event-notification` | - | 关闭系统通知 |
-| `--event-subagent` | `true` | task-backed 事件使用子任务处理 |
-| `--no-event-subagent` | - | 禁用 subagent；与 `--enable-event-listener` 冲突并直接报错退出 |
-| `--ready-to-merge-review-mode` | `require-approval` | `READY_TO_MERGE` 的 review 判定模式；可设为 `allow-no-review-required` 覆盖无强制 review 的仓库 |
+| `--enable-event-listener` | `true` | 启动刷新并开启后续轮询刷新 |
+| `--no-event-listener` | - | 不刷新 runtime JSON，只启动主 Claude |
+| `--event-poll-interval` | `3600000` | 轮询刷新间隔，单位毫秒 |
+| `--ready-to-merge-review-mode` | `require-approval` | `READY_TO_MERGE` 判定模式，可设为 `allow-no-review-required` |
 
----
+旧的事件 worker、终端输出和系统通知参数已删除；传入这些参数会报 unknown argument。
 
-## 监控模式
+## 事件模型
 
-脚本只保留事件监听作为 PR review / CI 检查入口：
+`event_task.json` 只包含以下六类 task：
 
-| 模式 | 开关 | 用途 |
-|---|---|---|
-| Event listener | 默认开启；`--no-event-listener` 可关闭 | 轮询 open PR，发现 CI、Review、评论、merge 状态变化 |
+- `CI_FAILURE`
+- `REVIEW_CHANGES_REQUESTED`
+- `MAINTAINER_COMMENT`
+- `BOT_COMMENT`
+- `NEW_COMMENT`
+- `NEEDS_REBASE`
 
-也可以运行 `update.sh` 做一次性 runtime JSON 刷新；它复用 event listener 启动刷新路径，但不启动 subagent 派发。若已有 listener 持有 active lock，`update.sh` 会输出 `event JSON skipped: active listener lock` 并以退出码 `2` 结束；若 open PR search 失败，会以 strict refresh 失败退出，不能把旧 JSON 当作本次刷新成功。刷新过程中所有 `gh` 请求在同一 Node 进程内串行执行，并对 `EOF` / TLS handshake 等临时传输错误做有限重试；单个 PR 失败日志会带 `attempt`、`commandKind` 和 `ghAttempt`，用于区分真实失败点和日志时间戳误读。
+以下事件不进入 task 队列，只更新 observed/log 状态：
 
-事件模型分为两类：
+- `CI_PASSED`
+- `REVIEW_APPROVED`
+- `READY_TO_MERGE`
 
-- task-backed：`CI_FAILURE`、`REVIEW_CHANGES_REQUESTED`、`MAINTAINER_COMMENT`、`BOT_COMMENT`、`NEW_COMMENT`、`NEEDS_REBASE`
-- notify-only：`CI_PASSED`、`REVIEW_APPROVED`、`READY_TO_MERGE`
+`mergeStateStatus=BLOCKED` 本身不生成 task。`NEEDS_REBASE` 只由 `BEHIND`、`DIRTY` 或 `mergeable=CONFLICTING` 触发。
 
-`READY_TO_MERGE` 默认要求 `reviewDecision=APPROVED`，以保持既有行为。没有强制 review 的仓库如需在 `reviewDecision=null` 且 CI 成功、可合并、无 unresolved review threads 时也发出 ready 通知，可设置 `readyToMergeReviewMode: "allow-no-review-required"` 或启动参数 `--ready-to-merge-review-mode allow-no-review-required`。该模式不会放行 `CHANGES_REQUESTED` 或 `REVIEW_REQUIRED`。
+## Runtime JSON
 
-`mergeStateStatus=BLOCKED` 是 GitHub 的汇总状态信号，本身不生成 task 或 notify；实际 task/notify 仍由 `statusCheckRollup`、`reviewDecision`、`mergeable`、`isDraft`、`unresolvedReviewThreadCount` 等具体字段决定。`NEEDS_REBASE` 只由 `BEHIND`、`DIRTY` 或 `mergeable=CONFLICTING` 触发。
-
-事件监听的硬规则：
-
-- event listener 默认开启，启动阶段会调用 `generateEventJson()` 刷新 `event_state.json` / `event_task.json`；只有显式传入 `--no-event-listener` 时才只启动主 Claude 会话、不刷新 PR event JSON、不派发 task。
-- event listener 启动刷新、每次轮询和 `update.sh` 必须调用同一个 `generateEventJson()` 入口；当该入口成功完成并保存后，subagent 派发基于本轮刷新结果，启动刷新产生的 runnable task 也由 launcher/subagent claim，不交给主 Agent 手工处理。open PR search 失败时本轮不刷新 JSON，但仍会派发已有到期 retry task，避免队列冻结；单个 PR snapshot 刷新失败时，本轮跳过该 `prKey` 的 task 派发，避免基于陈旧快照启动 subagent。
-- 只要 `event_task.json` 中仍存在同 `prKey + type` 的 task，就视为去重命中，不会重复建 task。
-- task 成功后直接从 `event_task.json` 删除，不保留 handled 历史项；subagent 完成时输出带 `nonce` 的结构化 `task result`，由 launcher 自动删除、block 或 retry。comment-backed task 的 `resolved` / `not_actionable` 结果还必须带 `evidence`（例如 `replyUrl`、`checkedCommand`、`reasonCategory` 或 `rationale`），否则 launcher 会拒绝结果并保持 task 可重试，防止 PR comment 注入伪造完成信号。
-- 主 Agent 不直接处理、删除或手工编辑 task。只有在 listener 已停止、且需要人工维护运行时 JSON 时，才按 `doc/event-task-state-maintenance.md` 更新 `event_state.json` 的 handled baseline 并清理对应 task。
-- listener 每次写入前会重读并校验 runtime JSON；如果保存前发现外部写入，会重载并重放本轮 mutation，降低旧内存状态覆盖磁盘变更的风险。这不是运行中手工编辑接口，listener 运行期间不要并行改 JSON。
-- task 失败最多自动尝试 5 次；超过上限后变成 `dead`。`dead` 只在底层触发条件仍然存在时继续阻塞同类事件；如果触发条件消失，会在后续扫描中自动回收。
-- `CI_FAILURE`、`REVIEW_CHANGES_REQUESTED`、`NEEDS_REBASE` 这类状态型 task 只有在 GitHub 最新状态里的触发条件消失后才允许清除；如果 subagent 报告 `resolved` 但触发条件仍存在，应进入 `blocked`，如果报告 `blocked` / `needs_human`，launcher 直接保留为 `blocked`。
-- 状态型 task 在扫描和失败重试前会先做 actionability 分类：明确需要 contributor、maintainer、人类决策或基础设施处理的任务直接进入 `blocked`，只有 agent 可行动或无法确定的任务才会进入自动派发。
-- 成功后的状态刷新以 GitHub 最新数据为准；评论类 cursor 只推进到 task 创建时的 boundary，然后立即对该 PR 局部重扫，避免吞掉处理中途到达的新评论。
-- 评论 backlog 按 `MAINTAINER_COMMENT`、`BOT_COMMENT`、`NEW_COMMENT` 三类独立跟踪，同一轮扫描里最多可并存三条评论 task。
-- `BOT_COMMENT` 会记录触发 task 的 bot review comment ID；当这些 review comment 全部出现非 bot 回复时，listener 会自动推进 `commentBaselines.bot` 并清理该 task。
-- 配置的 contributor login 自己发布的评论和 review 不生成 `NEW_COMMENT`，避免 agent 回复后再把自己的回复派发成新任务。
-
-具体处理流程以 `AGENT.md` 的 Review / CI 跟进规则和 `doc/event-task-state-maintenance.md` 的状态维护规则为准。
-
----
-
-## 运行产物
-
-日志写入：
+runtime 文件固定写入 launcher 根目录：
 
 ```text
-<repo-root>/.claude_agent_logs/
-|-- claude_stream_YYYYMMDD_HHMMSS.jsonl
-`-- claude_actions_YYYYMMDD_HHMMSS.log
+event_state.json
+event_task.json
 ```
 
-事件监听状态固定写入 launcher 根目录；`--cwd` 只影响 Claude 工作目录，不改变以下 runtime JSON 的位置：
-
-```text
-<repo-root>/event_state.json
-<repo-root>/event_task.json
-```
-
-这些文件是本地运行状态，已由 `.gitignore` 忽略；atomic write 残留的 `event_state.json.*.tmp` / `event_task.json.*.tmp` 也会被忽略。两者会写入同一个 `runtimeRevision`；如果两个文件的 revision 不一致，launcher 会拒绝加载并输出两个文件路径、revision、mtime 和恢复提示，避免使用不同轮次的 state/task 组合继续派发。恢复步骤见 `doc/event-task-state-maintenance.md`。
+两者会写入同一个 `runtimeRevision`。如果 revision 不一致，launcher 会拒绝加载并输出恢复提示。恢复规则见 `doc/event-task-state-maintenance.md`。
 
 ### `event_task.json`
 
-只保留活跃或失败未清理的 task。关键字段：
+新写入 task 只使用：
 
-- `runtimeRevision`
-- `status`: `pending | running | blocked | dead`
-- `resultNonce`: running task 的一次性 result nonce；subagent 输出必须匹配
-- `attemptCount`
-- `lastAttemptAt`
-- `nextRetryAt`
-- `lastError`
-- `claimedAt`
-- `runningPid`
-- `lastOutputAt`
+- `id`
+- `prKey`
+- `type`
+- `severity`
+- `createdAt`
+- `status`
+- `blockedAt`
+- `blockReason`
 - `blockOwner`
 - `blockCategory`
 - `unblockHint`
 - `blockedSnapshot`
 - `boundary`
+- `details`
 
-`blocked` 是队列状态，表示不应继续普通自动重试；`blockOwner` / `blockCategory` / `unblockHint` 说明需要谁处理、属于哪类阻塞、如何解除。典型 `blockOwner` 包括 `contributor`、`maintainer`、`human`、`infra`、`automation`。
-
-`dead` task 不是永久历史项：只有在底层触发条件仍然存在时才继续阻塞 dedupe；如果触发条件消失，会在后续扫描中自动回收。
-
-手工解除 `dead` task 阻塞时：
-
-- 方案一：直接删除该 task 条目。
-- 方案二：手动改回 `pending`，并重置：
-  - `attemptCount: 0`
-  - `lastAttemptAt: null`
-  - `nextRetryAt: 当前时间`
-  - `lastError: null`
-  - `claimedAt: null`
-  - `runningPid: null`
-  - `lastOutputAt: null`
-  - `blockOwner: null`
-  - `blockCategory: null`
-  - `unblockHint: null`
-  - `blockedSnapshot: null`
+有效 `status` 为 `pending` 和 `blocked`。旧 runtime 中的 `running` / `dead` 会归一为 `pending`，交给主 Claude 处理。
 
 ### `event_state.json`
-评论 baseline 按 `maintainer` / `bot` / `user` 三个 category 独立跟踪；评论 task 成功时只推进对应 category 的 cursor。
 
-保存每个 PR 的 handled baseline 和 last observed snapshot。评论流按来源拆分为：
+`baseline` 记录已处理位置，`observed` 记录最近扫描快照。评论 baseline 按 category 独立维护：
 
-- `runtimeRevision`
-- `commentBaselines.maintainer.issueCommentCursor`
-- `commentBaselines.maintainer.reviewCommentCursor`
-- `commentBaselines.maintainer.reviewCursor`
-- `commentBaselines.bot.issueCommentCursor`
-- `commentBaselines.bot.reviewCommentCursor`
-- `commentBaselines.bot.reviewCursor`
-- `commentBaselines.user.issueCommentCursor`
-- `commentBaselines.user.reviewCommentCursor`
-- `commentBaselines.user.reviewCursor`
+- `commentBaselines.maintainer`
+- `commentBaselines.bot`
+- `commentBaselines.user`
 
-另外还会记录：
+状态型 baseline 记录 CI、review、merge、draft、unresolved threads、`headSha` 等字段。主 Claude 删除 task 前必须推进对应 baseline。
 
-- `statusCheckState`
-- `reviewDecision`
-- `mergeStateStatus`
-- `mergeable`
-- `isDraft`
-- `unresolvedReviewThreadCount`
-- `headSha`
+## 主工作流
 
----
+主 Claude 的循环是：
+
+```text
+STARTUP
+-> TASK_QUEUE
+-> SCOUT
+-> TRIAGE
+-> LOCK_TARGET
+-> IMPLEMENT
+-> VALIDATE
+-> SUBMIT_PR
+-> RECORD
+-> TASK_QUEUE
+```
+
+每个阶段结束后都回到 `TASK_QUEUE`。只要队列非空，就先处理 task。具体任务处理标准见 `doc/task-processing.md`。
 
 ## 常用 GitHub 命令
 
-获取当前账号所有 upstream open PR：
+查看当前账号 upstream open PR：
 
 ```bash
 gh pr list --state open --author @me
 ```
 
-查看当前账号在特定仓库的 open PR：
-
-```bash
-gh pr list --repo <owner>/<repo> --state open --author @me
-```
-
-查看单个 PR 状态：
+查看 PR 状态：
 
 ```bash
 gh pr view <number> --repo <owner>/<repo> --json mergeStateStatus,reviewDecision,statusCheckRollup,isDraft,mergeable
-```
-
-查看 CI：
-
-```bash
 gh pr checks <number> --repo <owner>/<repo>
 ```
 
-查看 PR conversation comments：
+查看评论和 review：
 
 ```bash
 gh api repos/<owner>/<repo>/issues/<number>/comments
-```
-
-查看 review comments：
-
-```bash
 gh api repos/<owner>/<repo>/pulls/<number>/comments
-```
-
-查看 reviews：
-
-```bash
 gh api repos/<owner>/<repo>/pulls/<number>/reviews
 ```
 
@@ -361,17 +257,19 @@ git push origin <branch-name>
 gh pr create --repo <owner>/<repo> --base <base-branch> --head <fork-owner>:<branch-name> --title "<title>" --body "<body>"
 ```
 
-这里的 `<owner>/<repo>` 必须是 upstream 仓库，不是 `<contributor-login>/*` fork。
+这里的 `<owner>/<repo>` 必须是 upstream 仓库，不是自己的 fork。
 
----
+## 验证
 
-## 维护原则
+修改脚本或文档后至少运行：
 
-- 修改工作流时先改 `AGENT.md`。
-- 修改 PR 质量标准时先改 `doc/pr_rule.md`。
-- 修改脚本参数或启动方式时同步更新本 README。
-- 文档命令必须能真实执行，不保留已知错误命令。
+```bash
+node --check run-claude-agent.js
+node --test tests/run-claude-agent.test.js
+node run-claude-agent.js --help
+git diff --check
+```
 
 ## 许可证
 
-本项目使用 MIT License，见 [`LICENSE`](LICENSE)。
+本项目使用 MIT License，见 `LICENSE`。
