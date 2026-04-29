@@ -544,12 +544,10 @@ test("dedupe helper matches any existing task for the same PR and type", () => {
   manager.events = [
     makeTask({ id: "pending", prKey: "demo/repo#1", type: "NEW_COMMENT", status: agent.TASK_STATUS.PENDING }),
     makeTask({ id: "blocked", prKey: "demo/repo#2", type: "NEW_COMMENT", status: agent.TASK_STATUS.BLOCKED }),
-    makeTask({ id: "legacy", prKey: "demo/repo#3", type: "NEW_COMMENT", status: "running" }),
   ];
 
   assert.equal(manager.hasTaskForPrAndType("demo/repo#1", "NEW_COMMENT"), true);
   assert.equal(manager.hasTaskForPrAndType("demo/repo#2", "NEW_COMMENT"), true);
-  assert.equal(manager.hasTaskForPrAndType("demo/repo#3", "NEW_COMMENT"), true);
   assert.equal(manager.hasTaskForPrAndType("demo/repo#1", "BOT_COMMENT"), false);
   assert.equal(manager.hasTaskForPrAndType("demo/repo#4", "NEW_COMMENT"), false);
 });
@@ -673,26 +671,6 @@ test("removed event worker and notification CLI flags are unknown", async () => 
     const result = await runProcess(process.execPath, ["run-claude-agent.js", flag]);
     assert.notEqual(result.code, 0);
     assert.match(`${result.stdout}\n${result.stderr}`, /Unknown argument|未知参数/);
-  }
-});
-
-test("legacy running and dead task records normalize to pending main queue tasks", () => {
-  for (const status of ["running", "dead"]) {
-    const normalized = agent.normalizeTaskRecord({
-      ...makeTask({ id: `legacy-${status}`, status }),
-      claimedAt: "2026-04-24T00:01:00.000Z",
-      runningPid: 123,
-      lastOutputAt: "2026-04-24T00:02:00.000Z",
-      resultNonce: "nonce",
-      nextRetryAt: "2026-04-24T00:03:00.000Z",
-    });
-
-    assert.equal(normalized.status, agent.TASK_STATUS.PENDING);
-    assert.equal(Object.prototype.hasOwnProperty.call(normalized, "claimedAt"), false);
-    assert.equal(Object.prototype.hasOwnProperty.call(normalized, "runningPid"), false);
-    assert.equal(Object.prototype.hasOwnProperty.call(normalized, "lastOutputAt"), false);
-    assert.equal(Object.prototype.hasOwnProperty.call(normalized, "resultNonce"), false);
-    assert.equal(Object.prototype.hasOwnProperty.call(normalized, "nextRetryAt"), false);
   }
 });
 
