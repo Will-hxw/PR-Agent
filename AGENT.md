@@ -294,7 +294,7 @@ PR 提交后必须持续关注：
 
 - inline review comment 回复原 review thread；
 - 回复末尾加 `pr-agent:handled` marker，确保下一轮 JSON 刷新能自动识别闭环；
-- 英文项目用英文回复；
+- 本地终端交互可使用中文；所有面向 GitHub / 开源社区公开的 commit message、PR 标题、PR 描述、issue 回复和 review 回复必须使用英文；
 - 简短具体，不写 AI 式长篇解释；
 - 不采纳建议时给出具体原因。
 

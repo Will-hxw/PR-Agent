@@ -132,7 +132,7 @@ function buildDefaultPrompt() {
     "[Comment replies] When replying to MAINTAINER_COMMENT, BOT_COMMENT, NEW_COMMENT, or review feedback, append a hidden pr-agent:handled marker for every handled GitHub comment/review. Inline review comments should be answered in the original thread first; issue comments, review summaries, and commit comments require the marker so JSON refresh can detect closure.",
     "[Workflow] STARTUP -> TASK_QUEUE -> Scout -> Triage -> Lock Target -> Implement -> Validate -> Submit PR -> Record -> TASK_QUEUE. Return to TASK_QUEUE after every stage.",
     "[PR restriction] Do not create PRs for any MCP-related project, including MCP Server/Client/SDK/Protocol implementations, repositories containing MCP keywords, or projects using @modelcontextprotocol/* or @anthropic-ai/mcp-sdk dependencies.",
-    "Reply in Chinese except for proper nouns, code, commands, and technical identifiers.",
+    "Use Chinese for local terminal interaction. For any public GitHub content, including commit messages, PR titles/descriptions, issues, and review replies, follow doc/pr_rule.md and write in English.",
     `Read runtime state with JSON-aware tooling from: ${STATE_FILE} and ${TASK_FILE}.`,
     "Maintain this launcher repository's git cleanliness. Do not create contribution branches in this launcher repository; use candidates/ for target repositories, cloning your own fork there when needed.",
     "Follow AGENT.md, doc/pr_rule.md, doc/task-processing.md, and doc/event-task-state-maintenance.md.",
@@ -939,6 +939,11 @@ function normalizeTaskRecord(raw) {
     return null;
   }
 
+  const type = String(raw.type);
+  if (!TASK_EVENT_TYPES.has(type)) {
+    return null;
+  }
+
   const now = nowIso();
   let status = String(raw.status || "").toLowerCase();
   if (TERMINAL_TASK_STATUSES.has(status)) {
@@ -952,8 +957,8 @@ function normalizeTaskRecord(raw) {
   return {
     id: raw.id || randomUUID(),
     prKey: raw.prKey,
-    type: raw.type,
-    severity: raw.severity || TASK_EVENT_SEVERITY[raw.type] || "LIGHT",
+    type,
+    severity: raw.severity || TASK_EVENT_SEVERITY[type] || "LIGHT",
     createdAt: raw.createdAt || now,
     status,
     blockedAt: raw.blockedAt || null,
@@ -2996,7 +3001,7 @@ class EventListener {
 
     const failedPrKeys = [];
     const scannedPrKeys = [];
-    await this._withRuntimeMutation("refresh_json_state", async () => {
+    const mutationResult = await this._withRuntimeMutation("refresh_json_state", async () => {
       const openPrKeys = new Set(prList.map((pr) => pr.prKey));
       await this._cleanupTerminalPrs(openPrKeys);
 
@@ -3029,6 +3034,16 @@ class EventListener {
         }
       }
     });
+    if (mutationResult === null) {
+      this.actionLogger.writeLine(`[${nowStamp()}] event_tick skipped=runtime_save_conflict`);
+      return {
+        ok: false,
+        searchFailed: false,
+        failedPrKeys,
+        scannedPrKeys,
+        skippedReason: "runtime_save_conflict",
+      };
+    }
     return {
       ok: true,
       searchFailed: false,

@@ -1116,6 +1116,33 @@ test("runtime mutation retries after an external write and preserves it", async 
 });
 
 
+test("refresh reports skipped when runtime save conflicts exhaust retries", async () => {
+  const runtime = await createRuntimeFiles();
+  try {
+    const listener = createIsolatedListener(runtime, {
+      fetchPrSnapshot: async (prKey) => makeSnapshot({ prKey }),
+    });
+    listener._fetchOpenPrList = async () => [{ prKey: "demo/repo#82" }];
+    let signatureCounter = 0;
+    listener._readRuntimeSignature = async () => ({
+      state: `state-${signatureCounter++}`,
+      task: `task-${signatureCounter++}`,
+    });
+
+    const updated = await listener.generateEventJson();
+
+    assert.equal(updated, false);
+    assert.equal(listener.lastRefreshResult.ok, false);
+    assert.equal(listener.lastRefreshResult.skippedReason, "runtime_save_conflict");
+    assert.ok(listener.actionLogger.lines.some((line) => line.includes("runtime_save_conflict")));
+    assert.ok(listener.actionLogger.lines.some((line) => line.includes("skipped=runtime_save_conflict")));
+    listener.stop();
+  } finally {
+    await fs.rm(runtime.dir, { recursive: true, force: true });
+  }
+});
+
+
 test("non-default cwd still points prompt and runtime files at launcher root", async () => {
   const runtime = await createRuntimeFiles();
   try {
@@ -1164,6 +1191,39 @@ test("revision mismatch includes recovery diagnostics", async () => {
         return true;
       },
     );
+  } finally {
+    await fs.rm(runtime.dir, { recursive: true, force: true });
+  }
+});
+
+
+test("unknown and info-only task types are dropped on load", async () => {
+  const runtime = await createRuntimeFiles();
+  try {
+    await agent.writeJsonFileAtomic(runtime.taskFile, {
+      schemaVersion: 1,
+      runtimeRevision: "base",
+      events: [
+        makeTask({
+          id: "ready-task",
+          type: "READY_TO_MERGE",
+        }),
+        makeTask({
+          id: "unknown-task",
+          type: "SOMETHING_ELSE",
+        }),
+        makeTask({
+          id: "valid-task",
+          type: "NEW_COMMENT",
+        }),
+      ],
+    });
+
+    const manager = new agent.EventTaskManager({ filePath: runtime.taskFile });
+    await manager.load();
+
+    assert.deepStrictEqual(manager.events.map((event) => event.id), ["valid-task"]);
+    assert.equal(manager.events[0].type, "NEW_COMMENT");
   } finally {
     await fs.rm(runtime.dir, { recursive: true, force: true });
   }
@@ -2172,11 +2232,21 @@ test("open PR search filter ignores PRs in own repositories", () => {
 
   assert.equal(
     agent.shouldTrackOpenPrSearchItem({
-      repository_url: "https://api.github.com/repos/modelcontextprotocol/servers",
-      number: 4013,
+      repository_url: "https://api.github.com/repos/external-owner/external-repo",
+      number: 2,
     }),
     true,
   );
+});
+
+
+test("default prompt separates local Chinese interaction from public GitHub English", () => {
+  const prompt = agent.buildDefaultPrompt();
+
+  assert.match(prompt, /Use Chinese for local terminal interaction/);
+  assert.match(prompt, /public GitHub content/);
+  assert.match(prompt, /write in English/);
+  assert.match(prompt, /doc\/pr_rule\.md/);
 });
 
 
