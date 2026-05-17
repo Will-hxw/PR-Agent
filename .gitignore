@@ -11,3 +11,4 @@ records/*
 !records/.gitkeep
 !candidates/.gitkeep
 problem
+.claude
